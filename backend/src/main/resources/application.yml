@@ -1,0 +1,142 @@
+# ================================================================
+#  ProLance AI – Application Configuration (Development / Demo)
+#  Uses: H2 In-Memory DB (no external DB needed for demo)
+# ================================================================
+
+spring:
+  application:
+    name: TeamLance
+
+  # ── OAuth2 ────────────────────────────────────────────────────
+  security:
+    oauth2:
+      client:
+        registration:
+          google:
+            client-id: ${GOOGLE_CLIENT_ID:YOUR_GOOGLE_CLIENT_ID}
+            client-secret: ${GOOGLE_CLIENT_SECRET:YOUR_GOOGLE_CLIENT_SECRET}
+            scope:
+              - email
+              - profile
+            redirect-uri: "{baseUrl}/login/oauth2/code/{registrationId}"
+
+  # ── WebSocket / STOMP ─────────────────────────────────────────
+  websocket:
+    allowed-origins: "http://localhost:3000,http://localhost:5173"
+
+  # ── H2 In-Memory Database (no install needed) ─────────────────
+  datasource:
+    url: jdbc:h2:mem:prolancedb;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DEFAULT_NULL_ORDERING=HIGH;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE;NON_KEYWORDS=USER,VALUE,INTERVAL,DATETIME,YEAR,MONTH
+    driver-class-name: org.h2.Driver
+    username: sa
+    password: ""
+
+  h2:
+    console:
+      enabled: true
+      path: /h2-console
+
+  # ── JPA / Hibernate ───────────────────────────────────────────
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    show-sql: false
+    open-in-view: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.H2Dialect
+        format_sql: false
+        jdbc:
+          time_zone: UTC
+        globally_quoted_identifiers: false
+        use_sql_comments: false
+        type:
+          preferred_instant_jdbc_type: TIMESTAMP
+        timezone:
+          default_storage: NORMALIZE
+
+  # ── Flyway – disable ──────────────────────────────────────────
+  flyway:
+    enabled: false
+
+  # ── Exclude unused auto-configs ───────────────────────────────
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration
+      - org.springframework.boot.autoconfigure.data.redis.RedisRepositoriesAutoConfiguration
+      - org.springframework.boot.autoconfigure.amqp.RabbitAutoConfiguration
+
+  # ── Mail (mock – won't fail if not connected) ─────────────────
+  mail:
+    host: smtp.mock.example.com
+    port: 587
+    username: mock-user
+    password: mock-password
+
+  # ── Jackson ───────────────────────────────────────────────────
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
+    deserialization:
+      fail-on-unknown-properties: false
+    default-property-inclusion: non_null
+    time-zone: UTC
+
+  # ── File Upload ───────────────────────────────────────────────
+  servlet:
+    multipart:
+      enabled: true
+      max-file-size: 10MB
+      max-request-size: 20MB
+
+# ── Server ───────────────────────────────────────────────────
+server:
+  port: 8080
+  servlet:
+    context-path: /api
+  error:
+    include-message: always
+    include-binding-errors: always
+
+# ── Actuator ─────────────────────────────────────────────────
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: always
+
+# ── Springdoc / Swagger ───────────────────────────────────────
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+
+# ── Application settings ─────────────────────────────────────
+app:
+  jwt:
+    secret: "prolance-ai-super-secret-jwt-key-must-be-at-least-256-bits-long-string"
+    access-token-expiration-ms: 3600000     # 1 hour
+    refresh-token-expiration-ms: 604800000  # 7 days
+
+  ai-service:
+    base-url: http://localhost:8001
+    timeout-seconds: 30
+
+  cors:
+    allowed-origins: "http://localhost:3000,http://localhost:5173"
+
+  frontend-url: "http://localhost:5173"
+  oauth2-success-redirect: "http://localhost:5173/auth/oauth2/success"
+
+# ── Logging ───────────────────────────────────────────────────
+logging:
+  level:
+    com.trigrowth: INFO
+    org.springframework.security: WARN
+    org.hibernate.SQL: WARN
+  pattern:
+    console: "%d{HH:mm:ss} %-5level %logger{25} - %msg%n"

@@ -1,0 +1,13 @@
+fastapi
+uvicorn[standard]
+httpx
+pydantic
+pydantic-settings
+python-dotenv
+groq
+scikit-learn
+pandas
+numpy
+google-generativeai
+beautifulsoup4
+requests

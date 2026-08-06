@@ -1,0 +1,212 @@
+package com.trigrowth.controller;
+
+import com.trigrowth.model.*;
+import com.trigrowth.repository.UserRepository;
+import com.trigrowth.service.*;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.security.core.userdetails.UserDetails;
+import org.springframework.web.bind.annotation.*;
+
+import java.math.BigDecimal;
+import java.util.List;
+import java.util.UUID;
+import com.trigrowth.dto.ProjectRequest;
+
+@RestController
+@RequestMapping("/projects")
+@RequiredArgsConstructor
+@Tag(name = "Projects", description = "Project lifecycle endpoints")
+public class ProjectController {
+
+    private final ProjectService     projectService;
+    private final ApplicationService applicationService;
+    private final MessageService     messageService;
+    private final ReviewService      reviewService;
+    private final UserRepository     userRepository;
+
+    // ── Project CRUD ──────────────────────────────────────────────
+
+    @GetMapping("/open")
+    @Operation(summary = "List all open projects (public)")
+    public ResponseEntity<List<Project>> getOpenProjects() {
+        return ResponseEntity.ok(projectService.getOpenProjects());
+    }
+
+    @PostMapping
+    @Operation(summary = "Create a project (CLIENT)")
+    public ResponseEntity<Project> createProject(
+            @AuthenticationPrincipal UserDetails ud,
+            @Valid @RequestBody ProjectRequest req) {
+        User user = resolveUser(ud);
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(projectService.createProject(user.getId(), req));
+    }
+
+    @GetMapping("/mine")
+    @Operation(summary = "Client's own projects")
+    public ResponseEntity<List<Project>> getMyProjects(@AuthenticationPrincipal UserDetails ud) {
+        return ResponseEntity.ok(projectService.getMyProjects(resolveUser(ud).getId()));
+    }
+
+    @GetMapping("/assigned")
+    @Operation(summary = "Freelancer's assigned projects")
+    public ResponseEntity<List<Project>> getAssignedProjects(@AuthenticationPrincipal UserDetails ud) {
+        return ResponseEntity.ok(projectService.getAssignedProjects(resolveUser(ud).getId()));
+    }
+
+    @GetMapping("/{id}")
+    @Operation(summary = "Get project detail")
+    public ResponseEntity<Project> getProject(@PathVariable Long id) {
+        return ResponseEntity.ok(projectService.getProject(id));
+    }
+
+    @PostMapping("/{id}/hire/{freelancerId}")
+    @Operation(summary = "Hire a freelancer (CLIENT)")
+    public ResponseEntity<Project> hireFreelancer(
+            @PathVariable Long id,
+            @PathVariable UUID freelancerId,
+            @AuthenticationPrincipal UserDetails ud) {
+        return ResponseEntity.ok(
+                projectService.hireFreelancer(id, freelancerId, resolveUser(ud).getId()));
+    }
+
+    @PostMapping("/{id}/reject/{freelancerId}")
+    @Operation(summary = "Reject a freelancer bid (CLIENT)")
+    public ResponseEntity<Void> rejectFreelancer(
+            @PathVariable Long id,
+            @PathVariable UUID freelancerId,
+            @AuthenticationPrincipal UserDetails ud) {
+        projectService.rejectFreelancer(id, freelancerId, resolveUser(ud).getId());
+        return ResponseEntity.ok().build();
+    }
+
+    @PostMapping("/{id}/complete")
+    public ResponseEntity<Project> completeProject(@PathVariable Long id) {
+        return ResponseEntity.ok(projectService.completeProject(id));
+    }
+
+    /** FREELANCER: Submit work for client review */
+    @PostMapping("/{id}/submit-for-review")
+    @Operation(summary = "Freelancer submits work for client review")
+    public ResponseEntity<Project> submitForReview(
+            @PathVariable Long id,
+            @AuthenticationPrincipal UserDetails ud,
+            @RequestBody(required = false) SubmitReviewRequest req) {
+        String note = req != null ? req.note() : "Work has been submitted for your review.";
+        return ResponseEntity.ok(projectService.submitForReview(id, resolveUser(ud).getId(), note));
+    }
+
+    /** CLIENT: Approve the freelancer's submitted work → COMPLETED */
+    @PostMapping("/{id}/approve-completion")
+    @Operation(summary = "Client approves project completion")
+    public ResponseEntity<Project> approveCompletion(
+            @PathVariable Long id,
+            @AuthenticationPrincipal UserDetails ud) {
+        return ResponseEntity.ok(projectService.approveCompletion(id, resolveUser(ud).getId()));
+    }
+
+    /** CLIENT: Request revision → sends project back to IN_PROGRESS */
+    @PostMapping("/{id}/request-revision")
+    @Operation(summary = "Client requests revision")
+    public ResponseEntity<Project> requestRevision(
+            @PathVariable Long id,
+            @AuthenticationPrincipal UserDetails ud,
+            @RequestBody(required = false) RevisionRequest req) {
+        String note = req != null ? req.note() : "Please review and resubmit.";
+        return ResponseEntity.ok(projectService.requestRevision(id, resolveUser(ud).getId(), note));
+    }
+
+    @PostMapping("/{id}/cancel")
+    public ResponseEntity<Project> cancelProject(@PathVariable Long id) {
+        return ResponseEntity.ok(projectService.cancelProject(id));
+    }
+
+    // ── Applications ──────────────────────────────────────────────
+
+    @PostMapping("/{id}/apply")
+    @Operation(summary = "Apply to a project (FREELANCER)")
+    public ResponseEntity<Application> apply(
+            @PathVariable Long id,
+            @AuthenticationPrincipal UserDetails ud,
+            @Valid @RequestBody ApplicationRequest req) {
+        return ResponseEntity.status(HttpStatus.CREATED).body(
+                applicationService.apply(id, resolveUser(ud).getId(),
+                        req.coverLetter(), req.proposedAmount()));
+    }
+
+    @GetMapping("/{id}/applications")
+    @Operation(summary = "List applications for a project (CLIENT)")
+    public ResponseEntity<List<Application>> getApplications(@PathVariable Long id) {
+        return ResponseEntity.ok(applicationService.getProjectApplications(id));
+    }
+
+    @GetMapping("/my-applications")
+    @Operation(summary = "Get current freelancer's own applications (FREELANCER)")
+    public ResponseEntity<List<Application>> getMyApplications(
+            @AuthenticationPrincipal UserDetails ud) {
+        return ResponseEntity.ok(applicationService.getMyApplications(resolveUser(ud).getId()));
+    }
+
+    // ── Messages ──────────────────────────────────────────────────
+
+    @GetMapping("/{id}/messages")
+    public ResponseEntity<List<Message>> getMessages(@PathVariable Long id) {
+        return ResponseEntity.ok(messageService.getMessages(id));
+    }
+
+    @PostMapping("/{id}/messages")
+    public ResponseEntity<Message> sendMessage(
+            @PathVariable Long id,
+            @AuthenticationPrincipal UserDetails ud,
+            @RequestBody MessageRequest req) {
+        return ResponseEntity.status(HttpStatus.CREATED).body(
+                messageService.sendMessage(id, resolveUser(ud).getId(), req.content()));
+    }
+
+    // ── Reviews ───────────────────────────────────────────────────
+
+    @PostMapping("/{id}/reviews")
+    @Operation(summary = "Submit a review (CLIENT)")
+    public ResponseEntity<Review> submitReview(
+            @PathVariable Long id,
+            @AuthenticationPrincipal UserDetails ud,
+            @Valid @RequestBody ReviewRequest req) {
+        return ResponseEntity.status(HttpStatus.CREATED).body(
+                reviewService.submitReview(id, resolveUser(ud).getId(),
+                        req.revieweeId(), req.rating(), req.comment()));
+    }
+
+    // ── Helpers ───────────────────────────────────────────────────
+
+    private User resolveUser(UserDetails ud) {
+        return userRepository.findByEmail(ud.getUsername())
+                .orElseThrow(() -> new IllegalStateException("Authenticated user not found"));
+    }
+
+    // ── Inline request records ────────────────────────────────────
+ 
+    public record ApplicationRequest(
+            @NotBlank String coverLetter,
+            @NotNull BigDecimal proposedAmount
+    ) {}
+ 
+    public record MessageRequest(@NotBlank String content) {}
+ 
+    public record ReviewRequest(
+            UUID revieweeId,
+            @NotNull int rating,
+            String comment
+    ) {}
+
+    public record SubmitReviewRequest(String note) {}
+
+    public record RevisionRequest(String note) {}
+}

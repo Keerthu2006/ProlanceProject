@@ -42,6 +42,7 @@ public class Payment {
     @Column(nullable = false)
     private Status status = Status.PENDING;
 
+    @Builder.Default
     @Column(nullable = false)
     private Instant createdAt = Instant.now();
 

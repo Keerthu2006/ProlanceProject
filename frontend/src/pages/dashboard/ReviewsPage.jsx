@@ -1,78 +1,169 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  Box, 
-  Typography, 
-  Card, 
-  CardContent, 
-  Button, 
-  Rating, 
-  TextField, 
-  CircularProgress,
-  Chip,
-  Snackbar,
-  Alert
+import {
+  Box, Typography, Card, CardContent, Button, Rating,
+  TextField, CircularProgress, Chip, Snackbar, Alert, Avatar,
+  Tabs, Tab, Divider, Badge
 } from '@mui/material';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Star, MessageSquare, CheckCircle2, Clock } from 'lucide-react';
+import { Star, MessageSquare, CheckCircle2, Clock, ArrowRight, Send } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import api from '../../api/api';
 
-const ReviewsPage = () => {
+const themeStyles = {
+  bg: '#0D0A07',
+  primary: '#997E67',
+  cream: '#FFDBBB',
+  brown: '#664930',
+  glass: {
+    background: 'rgba(255,219,187,0.04)',
+    backdropFilter: 'blur(10px)',
+    border: '1px solid rgba(153,126,103,0.2)',
+    borderRadius: '12px',
+  }
+};
+
+const StarRating = ({ value, onChange, readOnly }) => (
+  <Rating
+    value={value}
+    onChange={onChange ? (_, v) => onChange(v) : undefined}
+    readOnly={readOnly}
+    size={readOnly ? 'small' : 'large'}
+    sx={{
+      '& .MuiRating-iconFilled': { color: themeStyles.primary },
+      '& .MuiRating-iconEmpty': { color: 'rgba(153,126,103,0.3)' }
+    }}
+  />
+);
+
+function ReviewCard({ review, badge, badgeColor = '#997E67' }) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 16 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.3 }}
+    >
+      <Card sx={{
+        mb: 2,
+        bgcolor: 'rgba(13,10,7,0.6)',
+        border: `1px solid rgba(153,126,103,0.2)`,
+        borderRadius: 2,
+        transition: 'border-color 0.2s',
+        '&:hover': { borderColor: 'rgba(153,126,103,0.4)' }
+      }}>
+        <CardContent sx={{ p: 3 }}>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1.5 }}>
+            <Box>
+              <Typography variant="subtitle1" sx={{ color: themeStyles.cream, fontWeight: 'bold', mb: 0.5 }}>
+                {review.project?.title || review.projectTitle || 'Project'}
+              </Typography>
+              <StarRating value={review.rating} readOnly />
+            </Box>
+            <Chip
+              label={badge}
+              size="small"
+              sx={{ bgcolor: `${badgeColor}20`, color: badgeColor, border: `1px solid ${badgeColor}40`, fontWeight: 'bold' }}
+            />
+          </Box>
+
+          {review.comment && (
+            <Typography
+              variant="body2"
+              sx={{
+                color: 'rgba(255,219,187,0.85)',
+                fontStyle: 'italic',
+                bgcolor: 'rgba(255,219,187,0.03)',
+                p: 1.5,
+                borderRadius: 1,
+                borderLeft: `3px solid ${themeStyles.primary}`,
+                my: 1.5
+              }}
+            >
+              "{review.comment}"
+            </Typography>
+          )}
+
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 1 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <Avatar sx={{ width: 24, height: 24, bgcolor: themeStyles.brown, fontSize: '0.7rem' }}>
+                {(review.reviewer?.fullName || review.reviewerName || '?')[0]}
+              </Avatar>
+              <Typography variant="caption" sx={{ color: 'rgba(255,219,187,0.6)' }}>
+                By: {review.reviewer?.fullName || review.reviewerName || 'User'}
+              </Typography>
+            </Box>
+            <Typography variant="caption" sx={{ color: 'rgba(255,219,187,0.4)' }}>
+              {review.createdAt ? new Date(review.createdAt).toLocaleDateString() : review.date ? new Date(review.date).toLocaleDateString() : ''}
+            </Typography>
+          </Box>
+        </CardContent>
+      </Card>
+    </motion.div>
+  );
+}
+
+export default function ReviewsPage() {
   const { user } = useAuth();
+  const isClient = user?.role === 'ROLE_CLIENT';
+  const isFreelancer = user?.role === 'ROLE_FREELANCER';
+
+  const [tab, setTab] = useState(0); // 0=pending, 1=given, 2=received
   const [loading, setLoading] = useState(true);
   const [pendingProjects, setPendingProjects] = useState([]);
   const [givenReviews, setGivenReviews] = useState([]);
   const [receivedReviews, setReceivedReviews] = useState([]);
-  const [error, setError] = useState('');
+
   const [reviewingProject, setReviewingProject] = useState(null);
-  const [rating, setRating] = useState(0);
+  const [rating, setRating] = useState(5);
   const [comment, setComment] = useState('');
+  const [submitting, setSubmitting] = useState(false);
   const [toast, setToast] = useState({ open: false, message: '', severity: 'success' });
 
+  // Track reviewed project IDs locally so we don't show them as pending twice
+  const [reviewedIds, setReviewedIds] = useState(() => {
+    try { return JSON.parse(localStorage.getItem(`reviewed_${user?.email}`) || '[]'); } catch { return []; }
+  });
+
   useEffect(() => {
-    if (user) {
-      loadData();
-    }
+    if (user) loadData();
   }, [user]);
 
   const loadData = async () => {
     setLoading(true);
     try {
-      // 1. Fetch completed projects for review
-      const endpoint = user?.role === 'ROLE_CLIENT' ? '/projects/mine' : '/projects/assigned';
-      const response = await api.get(endpoint);
-      const allProjects = response.data.content || response.data || [];
-      
+      // 1. Fetch completed projects (to show pending reviews)
+      const endpoint = isClient ? '/projects/mine' : '/projects/assigned';
+      const projRes = await api.get(endpoint);
+      const allProjects = projRes.data?.content || projRes.data || [];
       const completed = allProjects.filter(p => p.status === 'COMPLETED');
+      setPendingProjects(completed.filter(p => !reviewedIds.includes(p.id)));
 
-      // 2. Load stored reviews from localStorage
-      const storageKey = `teamlance_reviews_${user?.email}`;
-      const storedReviewsStr = localStorage.getItem(storageKey);
-      const storedReviews = storedReviewsStr ? JSON.parse(storedReviewsStr) : [];
-      setGivenReviews(storedReviews);
+      // 2. Fetch reviews I have GIVEN (from backend)
+      try {
+        const givenRes = await api.get('/projects/reviews/given');
+        setGivenReviews(givenRes.data || []);
+        // Merge with any localStorage-only reviews (for backwards compat)
+        const lsKey = `teamlance_reviews_${user?.email}`;
+        const ls = JSON.parse(localStorage.getItem(lsKey) || '[]');
+        setGivenReviews(prev => {
+          const backendIds = new Set(prev.map(r => r.id));
+          return [...prev, ...ls.filter(r => !backendIds.has(r.id))];
+        });
+      } catch {
+        const lsKey = `teamlance_reviews_${user?.email}`;
+        setGivenReviews(JSON.parse(localStorage.getItem(lsKey) || '[]'));
+      }
 
-      // 3. Filter pending projects (those not yet reviewed)
-      const reviewedProjectIds = storedReviews.map(r => r.projectId);
-      const pending = completed.filter(p => !reviewedProjectIds.includes(p.id));
-      
-      setPendingProjects(pending);
-
-      // 4. Fetch received reviews from backend (for Freelancers)
-      if (user?.role === 'ROLE_FREELANCER') {
-        try {
-          const profileRes = await api.get('/freelancers/me');
-          if (profileRes.data?.id) {
-            const revRes = await api.get(`/freelancers/${profileRes.data.id}/reviews`);
-            setReceivedReviews(revRes.data || []);
-          }
-        } catch (e) {
-          console.warn('Could not fetch received reviews', e);
-        }
+      // 3. Fetch reviews I have RECEIVED
+      try {
+        const recRes = await api.get('/projects/reviews/received');
+        setReceivedReviews(recRes.data || []);
+      } catch (e) {
+        console.warn('Could not fetch received reviews', e);
       }
 
     } catch (err) {
-      console.error('Failed to load review data:', err);
-      setError('Failed to load projects. Please try again later.');
+      console.error('Failed to load data:', err);
+      setToast({ open: true, message: 'Could not load review data.', severity: 'error' });
     } finally {
       setLoading(false);
     }
@@ -80,168 +171,205 @@ const ReviewsPage = () => {
 
   const handleSubmitReview = async () => {
     if (!rating) {
-      setToast({ open: true, message: 'Please select a rating', severity: 'error' });
+      setToast({ open: true, message: 'Please select a rating', severity: 'warning' });
       return;
     }
-    
+    setSubmitting(true);
     try {
-      // API call (if backend supports it, else it will fail but we'll try)
-      try {
-         const targetId = user?.role === 'ROLE_CLIENT' ? reviewingProject.hiredFreelancerId : reviewingProject.client?.id;
-         await api.post(`/projects/${reviewingProject.id}/reviews`, { 
-            revieweeId: targetId,
-            rating, 
-            comment 
-         });
-      } catch (apiErr) {
-         console.warn('API submission failed, storing locally', apiErr);
+      // Determine reviewee: client reviews the hired freelancer, freelancer reviews the project client/owner
+      const revieweeId = isClient
+        ? reviewingProject.hiredFreelancerId
+        : (reviewingProject.clientId || reviewingProject.ownerId);
+
+      if (!revieweeId) {
+        setToast({ open: true, message: 'Cannot determine who to review. Please try again.', severity: 'error' });
+        setSubmitting(false);
+        return;
       }
 
-      // Store in localStorage
+      await api.post(`/projects/${reviewingProject.id}/reviews`, {
+        revieweeId,
+        rating,
+        comment
+      });
+
+      // Mark locally so it disappears from pending
+      const newIds = [...reviewedIds, reviewingProject.id];
+      setReviewedIds(newIds);
+      localStorage.setItem(`reviewed_${user?.email}`, JSON.stringify(newIds));
+
+      setToast({ open: true, message: '✅ Review submitted!', severity: 'success' });
+      setReviewingProject(null);
+      setRating(5);
+      setComment('');
+      loadData(); // refresh all data
+    } catch (err) {
+      // Still save locally even if API fails
+      const lsKey = `teamlance_reviews_${user?.email}`;
       const newReview = {
         id: Date.now(),
         projectId: reviewingProject.id,
         projectTitle: reviewingProject.title,
+        reviewerName: user?.fullName || user?.email,
         rating,
         comment,
         date: new Date().toISOString()
       };
-      
-      const storageKey = `teamlance_reviews_${user?.email}`;
-      const updatedReviews = [newReview, ...givenReviews];
-      localStorage.setItem(storageKey, JSON.stringify(updatedReviews));
-      
-      setGivenReviews(updatedReviews);
-      setPendingProjects(prev => prev.filter(p => p.id !== reviewingProject.id));
-      
-      setToast({ open: true, message: 'Review submitted successfully!', severity: 'success' });
+      const existing = JSON.parse(localStorage.getItem(lsKey) || '[]');
+      localStorage.setItem(lsKey, JSON.stringify([newReview, ...existing]));
+
+      const newIds = [...reviewedIds, reviewingProject.id];
+      setReviewedIds(newIds);
+      localStorage.setItem(`reviewed_${user?.email}`, JSON.stringify(newIds));
+
+      setToast({ open: true, message: '✅ Review saved locally.', severity: 'success' });
       setReviewingProject(null);
-      setRating(0);
+      setRating(5);
       setComment('');
-    } catch (err) {
-      setToast({ open: true, message: 'Failed to submit review.', severity: 'error' });
+      setPendingProjects(prev => prev.filter(p => p.id !== reviewingProject.id));
+    } finally {
+      setSubmitting(false);
     }
   };
 
-  const handleCloseToast = () => setToast({ ...toast, open: false });
+  const tabLabels = [
+    { label: 'Pending', count: pendingProjects.length },
+    { label: 'Reviews Given', count: givenReviews.length },
+    { label: 'Reviews Received', count: receivedReviews.length },
+  ];
 
   if (loading) {
     return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%', minHeight: '60vh' }}>
-        <CircularProgress sx={{ color: '#997E67' }} />
+      <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '60vh' }}>
+        <CircularProgress sx={{ color: themeStyles.primary }} />
       </Box>
     );
   }
 
   return (
-    <Box sx={{ p: 4, maxWidth: '1200px', margin: '0 auto', color: '#FFDBBB' }}>
-      <Typography variant="h4" sx={{ mb: 4, fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: 2 }}>
-        <Star color="#997E67" size={32} /> Reviews & Ratings
-      </Typography>
+    <Box sx={{ p: 4, maxWidth: 900, margin: '0 auto', color: themeStyles.cream }}>
+      {/* Header */}
+      <Box sx={{ mb: 4 }}>
+        <Typography variant="h4" sx={{ fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: 2, mb: 1 }}>
+          <Star color={themeStyles.primary} size={32} /> Reviews & Ratings
+        </Typography>
+        <Typography variant="body2" sx={{ color: 'rgba(255,219,187,0.6)' }}>
+          {isClient ? 'Rate the freelancers you worked with and see your own ratings.' : 'Rate your clients and see what clients say about you.'}
+        </Typography>
+      </Box>
 
-      {error && (
-        <Alert severity="error" sx={{ mb: 4, backgroundColor: 'rgba(211, 47, 47, 0.1)', color: '#ff8a80' }}>
-          {error}
-        </Alert>
-      )}
+      {/* Tabs */}
+      <Tabs
+        value={tab}
+        onChange={(_, v) => setTab(v)}
+        sx={{
+          mb: 4,
+          borderBottom: `1px solid rgba(102,73,48,0.4)`,
+          '& .MuiTab-root': { color: themeStyles.primary, textTransform: 'none', fontWeight: 600 },
+          '& .Mui-selected': { color: `${themeStyles.cream} !important` },
+          '& .MuiTabs-indicator': { bgcolor: themeStyles.cream },
+        }}
+      >
+        {tabLabels.map((t, i) => (
+          <Tab
+            key={i}
+            label={
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                {t.label}
+                {t.count > 0 && (
+                  <Chip
+                    label={t.count}
+                    size="small"
+                    sx={{ height: 18, fontSize: '0.7rem', bgcolor: i === tab ? themeStyles.brown : 'rgba(102,73,48,0.3)', color: themeStyles.cream }}
+                  />
+                )}
+              </Box>
+            }
+          />
+        ))}
+      </Tabs>
 
-      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 4 }}>
-        
-        {/* Pending Reviews Section */}
+      {/* TAB 0 — Pending Reviews */}
+      {tab === 0 && (
         <Box>
-          <Typography variant="h6" sx={{ mb: 3, display: 'flex', alignItems: 'center', gap: 1, color: '#997E67' }}>
-            <Clock size={20} /> Pending Reviews ({pendingProjects.length})
-          </Typography>
-          
-          <AnimatePresence>
-            {pendingProjects.length === 0 ? (
-              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-                <Card sx={{ bgcolor: 'rgba(255,219,187,0.05)', backdropFilter: 'blur(10px)', border: '1px solid rgba(153,126,103,0.2)', borderRadius: 3, p: 4, textAlign: 'center' }}>
-                  <CheckCircle2 size={48} color="#997E67" style={{ opacity: 0.5, marginBottom: '16px' }} />
-                  <Typography color="text.secondary" sx={{ color: 'rgba(255,219,187,0.6)' }}>
-                    You're all caught up! No pending reviews.
-                  </Typography>
-                </Card>
-              </motion.div>
-            ) : (
-              pendingProjects.map((project) => (
+          {pendingProjects.length === 0 ? (
+            <Card sx={{ ...themeStyles.glass, p: 5, textAlign: 'center' }}>
+              <CheckCircle2 size={48} color={themeStyles.primary} style={{ opacity: 0.5, marginBottom: 16 }} />
+              <Typography variant="h6" sx={{ color: themeStyles.cream, mb: 1 }}>All caught up!</Typography>
+              <Typography sx={{ color: 'rgba(255,219,187,0.5)' }}>No pending reviews. Complete a project to leave a review.</Typography>
+            </Card>
+          ) : (
+            <AnimatePresence>
+              {pendingProjects.map(project => (
                 <motion.div key={project.id} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, scale: 0.9 }} transition={{ duration: 0.3 }}>
-                  <Card sx={{ 
-                    mb: 2, 
-                    bgcolor: 'rgba(255,219,187,0.05)', 
-                    backdropFilter: 'blur(10px)', 
-                    border: '1px solid rgba(153,126,103,0.2)', 
-                    borderRadius: 3,
-                    transition: 'transform 0.2s',
-                    '&:hover': { transform: 'translateY(-4px)', border: '1px solid rgba(153,126,103,0.5)' }
-                  }}>
+                  <Card sx={{ mb: 3, ...themeStyles.glass, transition: 'transform 0.2s', '&:hover': { transform: 'translateY(-3px)', border: '1px solid rgba(153,126,103,0.5)' } }}>
                     <CardContent sx={{ p: 3 }}>
                       {reviewingProject?.id === project.id ? (
-                        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                          <Typography variant="h6" sx={{ color: '#FFDBBB' }}>Reviewing: {project.title}</Typography>
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                            <Typography sx={{ color: 'rgba(255,219,187,0.8)' }}>Rating:</Typography>
-                            <Rating 
-                              value={rating} 
-                              onChange={(event, newValue) => setRating(newValue)} 
-                              sx={{ 
-                                '& .MuiRating-iconFilled': { color: '#997E67' },
-                                '& .MuiRating-iconEmpty': { color: 'rgba(153,126,103,0.3)' }
-                              }} 
-                            />
+                        /* Inline Review Form */
+                        <Box>
+                          <Typography variant="h6" sx={{ color: themeStyles.cream, mb: 3 }}>
+                            Reviewing: <strong>{project.title}</strong>
+                          </Typography>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 3 }}>
+                            <Typography sx={{ color: 'rgba(255,219,187,0.8)', minWidth: 60 }}>Rating:</Typography>
+                            <StarRating value={rating} onChange={setRating} />
+                            <Typography sx={{ color: themeStyles.primary, fontWeight: 'bold' }}>{rating}/5</Typography>
                           </Box>
                           <TextField
+                            fullWidth
                             multiline
-                            rows={3}
-                            placeholder="Share your experience..."
+                            rows={4}
+                            placeholder={isClient
+                              ? 'How was working with this freelancer? Was the work delivered on time and as expected?'
+                              : 'How was this client to work with? Clear communication, fair requirements, timely feedback?'}
                             value={comment}
                             onChange={(e) => setComment(e.target.value)}
                             variant="outlined"
-                            fullWidth
                             sx={{
+                              mb: 3,
                               '& .MuiOutlinedInput-root': {
-                                color: '#FFDBBB',
+                                color: themeStyles.cream,
                                 '& fieldset': { borderColor: 'rgba(153,126,103,0.3)' },
-                                '&:hover fieldset': { borderColor: 'rgba(153,126,103,0.6)' },
-                                '&.Mui-focused fieldset': { borderColor: '#997E67' },
-                              },
+                                '&:hover fieldset': { borderColor: themeStyles.primary },
+                                '&.Mui-focused fieldset': { borderColor: themeStyles.cream },
+                              }
                             }}
                           />
-                          <Box sx={{ display: 'flex', gap: 2, justifyContent: 'flex-end', mt: 1 }}>
-                            <Button 
-                              onClick={() => { setReviewingProject(null); setRating(0); setComment(''); }}
-                              sx={{ color: 'rgba(255,219,187,0.7)' }}
+                          <Box sx={{ display: 'flex', gap: 2, justifyContent: 'flex-end' }}>
+                            <Button
+                              onClick={() => { setReviewingProject(null); setRating(5); setComment(''); }}
+                              sx={{ color: 'rgba(255,219,187,0.6)' }}
+                              disabled={submitting}
                             >
                               Cancel
                             </Button>
-                            <Button 
-                              variant="contained" 
+                            <Button
+                              variant="contained"
+                              startIcon={<Send size={16} />}
                               onClick={handleSubmitReview}
-                              sx={{ 
-                                background: 'linear-gradient(45deg, #664930, #997E67)', 
-                                color: '#FFDBBB',
-                                '&:hover': { background: 'linear-gradient(45deg, #997E67, #664930)' }
-                              }}
+                              disabled={submitting || !rating}
+                              sx={{ bgcolor: themeStyles.primary, color: '#0D0A07', fontWeight: 'bold', '&:hover': { bgcolor: themeStyles.cream } }}
                             >
-                              Submit Review
+                              {submitting ? 'Submitting…' : 'Submit Review'}
                             </Button>
                           </Box>
                         </Box>
                       ) : (
-                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        /* Project Card */
+                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 2 }}>
                           <Box>
-                            <Typography variant="h6" sx={{ color: '#FFDBBB', mb: 1 }}>{project.title}</Typography>
-                            <Chip label="Completed" size="small" sx={{ bgcolor: 'rgba(153,126,103,0.2)', color: '#997E67' }} />
+                            <Typography variant="h6" sx={{ color: themeStyles.cream, mb: 0.5 }}>{project.title}</Typography>
+                            <Box sx={{ display: 'flex', gap: 1 }}>
+                              <Chip label="Completed" size="small" sx={{ bgcolor: 'rgba(76,175,80,0.15)', color: '#4caf50', border: '1px solid #4caf5040' }} />
+                              <Chip label={isClient ? 'Rate Freelancer' : 'Rate Client'} size="small" sx={{ bgcolor: 'rgba(153,126,103,0.15)', color: themeStyles.primary }} />
+                            </Box>
                           </Box>
-                          <Button 
-                            variant="outlined" 
-                            startIcon={<MessageSquare size={18} />}
+                          <Button
+                            variant="outlined"
+                            startIcon={<MessageSquare size={16} />}
+                            endIcon={<ArrowRight size={16} />}
                             onClick={() => setReviewingProject(project)}
-                            sx={{ 
-                              borderColor: '#997E67', 
-                              color: '#997E67',
-                              '&:hover': { borderColor: '#FFDBBB', color: '#FFDBBB' }
-                            }}
+                            sx={{ borderColor: themeStyles.primary, color: themeStyles.primary, '&:hover': { borderColor: themeStyles.cream, color: themeStyles.cream } }}
                           >
                             Leave Review
                           </Button>
@@ -250,108 +378,81 @@ const ReviewsPage = () => {
                     </CardContent>
                   </Card>
                 </motion.div>
-              ))
-            )}
-          </AnimatePresence>
+              ))}
+            </AnimatePresence>
+          )}
         </Box>
+      )}
 
-        {/* Given Reviews Section */}
+      {/* TAB 1 — Reviews I've Given */}
+      {tab === 1 && (
         <Box>
-          <Typography variant="h6" sx={{ mb: 3, display: 'flex', alignItems: 'center', gap: 1, color: '#997E67' }}>
-            <Star size={20} /> My Reviews Given
-          </Typography>
-          
           {givenReviews.length === 0 ? (
-            <Card sx={{ bgcolor: 'rgba(255,219,187,0.02)', backdropFilter: 'blur(10px)', border: '1px dashed rgba(153,126,103,0.2)', borderRadius: 3, p: 4, textAlign: 'center' }}>
-              <Typography color="text.secondary" sx={{ color: 'rgba(255,219,187,0.4)' }}>
-                You haven't given any reviews yet.
+            <Card sx={{ ...themeStyles.glass, p: 5, textAlign: 'center' }}>
+              <Star size={48} color={themeStyles.primary} style={{ opacity: 0.4, marginBottom: 16 }} />
+              <Typography sx={{ color: 'rgba(255,219,187,0.5)' }}>You haven't given any reviews yet.</Typography>
+            </Card>
+          ) : (
+            givenReviews.map((review, i) => (
+              <ReviewCard
+                key={review.id || i}
+                review={review}
+                badge="Given by you"
+                badgeColor={themeStyles.primary}
+              />
+            ))
+          )}
+        </Box>
+      )}
+
+      {/* TAB 2 — Reviews Received */}
+      {tab === 2 && (
+        <Box>
+          {receivedReviews.length === 0 ? (
+            <Card sx={{ ...themeStyles.glass, p: 5, textAlign: 'center' }}>
+              <Star size={48} color="#2196f3" style={{ opacity: 0.4, marginBottom: 16 }} />
+              <Typography sx={{ color: 'rgba(255,219,187,0.5)' }}>
+                {isClient ? 'No reviews received from freelancers yet.' : 'No reviews received from clients yet.'}
               </Typography>
             </Card>
           ) : (
-            givenReviews.map((review, index) => (
-              <motion.div key={review.id} initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.3, delay: index * 0.1 }}>
-                <Card sx={{ mb: 2, bgcolor: 'rgba(13,10,7,0.6)', border: '1px solid rgba(153,126,103,0.1)', borderRadius: 3 }}>
-                  <CardContent sx={{ p: 3 }}>
-                    <Typography variant="subtitle1" sx={{ color: '#FFDBBB', fontWeight: 'bold', mb: 1 }}>
-                      {review.projectTitle}
-                    </Typography>
-                    <Rating 
-                      value={review.rating} 
-                      readOnly 
-                      size="small"
-                      sx={{ mb: 1, '& .MuiRating-iconFilled': { color: '#997E67' } }} 
-                    />
-                    {review.comment && (
-                      <Typography variant="body2" sx={{ color: 'rgba(255,219,187,0.8)', mt: 1, fontStyle: 'italic', bgcolor: 'rgba(255,219,187,0.03)', p: 1.5, borderRadius: 1 }}>
-                        "{review.comment}"
-                      </Typography>
-                    )}
-                    <Typography variant="caption" sx={{ color: 'rgba(255,219,187,0.4)', display: 'block', mt: 2 }}>
-                      {new Date(review.date).toLocaleDateString()}
-                    </Typography>
-                  </CardContent>
-                </Card>
-              </motion.div>
-            ))
-          )}
-
-          {/* Received Reviews Section for Freelancers */}
-          {user?.role === 'ROLE_FREELANCER' && (
-            <Box sx={{ mt: 5 }}>
-              <Typography variant="h6" sx={{ mb: 3, display: 'flex', alignItems: 'center', gap: 1, color: '#997E67' }}>
-                <Star size={20} /> Reviews Received
-              </Typography>
-              
-              {receivedReviews.length === 0 ? (
-                <Card sx={{ bgcolor: 'rgba(255,219,187,0.02)', backdropFilter: 'blur(10px)', border: '1px dashed rgba(153,126,103,0.2)', borderRadius: 3, p: 4, textAlign: 'center' }}>
-                  <Typography color="text.secondary" sx={{ color: 'rgba(255,219,187,0.4)' }}>
-                    No reviews received from clients yet.
-                  </Typography>
-                </Card>
-              ) : (
-                receivedReviews.map((review, index) => (
-                  <motion.div key={review.id || index} initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.3, delay: index * 0.1 }}>
-                    <Card sx={{ mb: 2, bgcolor: 'rgba(33,150,243,0.08)', border: '1px solid rgba(33,150,243,0.2)', borderRadius: 3 }}>
-                      <CardContent sx={{ p: 3 }}>
-                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
-                          <Typography variant="subtitle1" sx={{ color: '#2196f3', fontWeight: 'bold' }}>
-                            {review.project?.title || 'Client Project'}
-                          </Typography>
-                          <Chip label="Received" size="small" sx={{ bgcolor: 'rgba(33,150,243,0.1)', color: '#2196f3' }} />
-                        </Box>
-                        
-                        <Rating 
-                          value={review.rating} 
-                          readOnly 
-                          size="small"
-                          sx={{ mb: 1, '& .MuiRating-iconFilled': { color: '#2196f3' } }} 
-                        />
-                        {review.comment && (
-                          <Typography variant="body2" sx={{ color: 'rgba(255,219,187,0.9)', mt: 1, fontStyle: 'italic', bgcolor: 'rgba(255,219,187,0.03)', p: 1.5, borderRadius: 1 }}>
-                            "{review.comment}"
-                          </Typography>
-                        )}
-                        <Typography variant="caption" sx={{ color: 'rgba(255,219,187,0.5)', display: 'block', mt: 2 }}>
-                          From: {review.reviewer?.fullName || 'Client'} • {new Date(review.createdAt || Date.now()).toLocaleDateString()}
+            <Box>
+              {/* Average Rating Summary */}
+              {receivedReviews.length > 0 && (() => {
+                const avg = (receivedReviews.reduce((s, r) => s + (r.rating || 0), 0) / receivedReviews.length).toFixed(1);
+                return (
+                  <Card sx={{ mb: 3, ...themeStyles.glass, p: 3 }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+                      <Typography variant="h2" sx={{ color: themeStyles.cream, fontWeight: 'bold' }}>{avg}</Typography>
+                      <Box>
+                        <StarRating value={parseFloat(avg)} readOnly />
+                        <Typography variant="body2" sx={{ color: 'rgba(255,219,187,0.6)', mt: 0.5 }}>
+                          Based on {receivedReviews.length} review{receivedReviews.length !== 1 ? 's' : ''}
                         </Typography>
-                      </CardContent>
-                    </Card>
-                  </motion.div>
-                ))
-              )}
+                      </Box>
+                    </Box>
+                  </Card>
+                );
+              })()}
+
+              {receivedReviews.map((review, i) => (
+                <ReviewCard
+                  key={review.id || i}
+                  review={review}
+                  badge="Received"
+                  badgeColor="#2196f3"
+                />
+              ))}
             </Box>
           )}
         </Box>
+      )}
 
-      </Box>
-
-      <Snackbar open={toast.open} autoHideDuration={6000} onClose={handleCloseToast} anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}>
-        <Alert onClose={handleCloseToast} severity={toast.severity} sx={{ width: '100%', bgcolor: toast.severity === 'success' ? '#2e7d32' : '#d32f2f', color: '#fff' }}>
+      <Snackbar open={toast.open} autoHideDuration={5000} onClose={() => setToast({ ...toast, open: false })} anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}>
+        <Alert onClose={() => setToast({ ...toast, open: false })} severity={toast.severity} sx={{ width: '100%' }}>
           {toast.message}
         </Alert>
       </Snackbar>
     </Box>
   );
-};
-
-export default ReviewsPage;
+}

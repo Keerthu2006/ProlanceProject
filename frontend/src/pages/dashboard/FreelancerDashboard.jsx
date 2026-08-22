@@ -5,11 +5,11 @@ import api from '../../api/api';
 import {
   Box, Typography, Button, Tabs, Tab, Card, CardContent, Chip, Avatar,
   Dialog, DialogTitle, DialogContent, DialogActions, TextField,
-  Grid, LinearProgress, Snackbar, Alert, IconButton
+  Grid, LinearProgress, Snackbar, Alert, IconButton, Rating
 } from '@mui/material';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import {
-  Edit, CheckCircle2, TrendingUp, Sparkles, Briefcase, Clock, Users, X
+  Edit, CheckCircle2, TrendingUp, Sparkles, Briefcase, Clock, Users, X, Star
 } from 'lucide-react';
 
 const MOCK_OPEN_PROJECTS = [
@@ -55,6 +55,14 @@ export default function FreelancerDashboard() {
     name: user?.fullName || 'Loading...', profession: 'Loading...', hourlyRate: '-', 
     availability: '-', completeness: 0,
     bio: 'Loading...', skills: ''
+  });
+
+  const [isReviewModalOpen, setIsReviewModalOpen] = useState(false);
+  const [reviewRating, setReviewRating] = useState(4);
+  const [reviewComment, setReviewComment] = useState('');
+  const [reviewProject, setReviewProject] = useState(null);
+  const [reviewedProjects, setReviewedProjects] = useState(() => {
+    try { return JSON.parse(localStorage.getItem(`freelancer_reviewed_${user?.email}`) || '[]'); } catch { return []; }
   });
 
   useEffect(() => {
@@ -124,6 +132,7 @@ export default function FreelancerDashboard() {
   };
 
   useEffect(() => {
+    if (activeTab === 0) fetchProjects();
     if (activeTab === 1) fetchMyBids();
     if (activeTab === 2) fetchAssignedProjects();
     if (activeTab === 3) fetchTeamData();
@@ -152,6 +161,28 @@ export default function FreelancerDashboard() {
       fetchAssignedProjects();
     } catch (err) {
       setToast({ open: true, message: err.response?.data?.message || 'Failed to submit for review', severity: 'error' });
+    }
+  };
+
+  const handleSubmitReview = async () => {
+    if (!reviewProject) return;
+    try {
+      await api.post(`/projects/${reviewProject.id}/reviews`, {
+        revieweeId: reviewProject.owner?.id || reviewProject.client?.id || reviewProject.clientId,
+        rating: reviewRating,
+        comment: reviewComment
+      });
+      const updated = [...reviewedProjects, reviewProject.id];
+      setReviewedProjects(updated);
+      localStorage.setItem(`freelancer_reviewed_${user?.email}`, JSON.stringify(updated));
+      setIsReviewModalOpen(false);
+      setReviewComment('');
+      setReviewRating(4);
+      setReviewProject(null);
+      setToast({ open: true, message: 'Review submitted for the client! ✅', severity: 'success' });
+    } catch (err) {
+      console.error('Failed to submit review:', err);
+      setToast({ open: true, message: err.response?.data?.message || 'Failed to submit review to server.', severity: 'error' });
     }
   };
 
@@ -399,7 +430,22 @@ export default function FreelancerDashboard() {
                         <Chip label="⏳ Awaiting Client Approval" sx={{ bgcolor: 'rgba(33,150,243,0.1)', color: '#2196f3', border: '1px solid #2196f3', mt: 1 }} />
                       )}
                       {isCompleted && (
-                        <Chip label="✅ Delivered & Approved" sx={{ bgcolor: 'rgba(76,175,80,0.1)', color: '#4caf50', border: '1px solid #4caf50', mt: 1 }} />
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mt: 1 }}>
+                          <Chip label="✅ Delivered & Approved" sx={{ bgcolor: 'rgba(76,175,80,0.1)', color: '#4caf50', border: '1px solid #4caf50' }} />
+                          {!reviewedProjects.includes(project.id) ? (
+                            <Button
+                              variant="outlined"
+                              size="small"
+                              startIcon={<Star size={16} />}
+                              sx={{ color: themeStyles.cream, borderColor: themeStyles.primary }}
+                              onClick={() => { setReviewProject(project); setIsReviewModalOpen(true); }}
+                            >
+                              Leave Review
+                            </Button>
+                          ) : (
+                            <Chip label="✓ Reviewed" size="small" sx={{ bgcolor: 'rgba(76,175,80,0.1)', color: '#4caf50', border: 'none' }} />
+                          )}
+                        </Box>
                       )}
                     </Box>
                   </motion.div>
@@ -550,6 +596,49 @@ export default function FreelancerDashboard() {
             sx={{ bgcolor: themeStyles.primary, color: themeStyles.bg, '&:hover': { bgcolor: themeStyles.cream } }}
           >
             Submit for Client Review
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Review Modal */}
+      <Dialog 
+        open={isReviewModalOpen} 
+        onClose={() => { setIsReviewModalOpen(false); setReviewProject(null); }}
+        PaperProps={{ sx: { bgcolor: themeStyles.bg, color: themeStyles.cream, border: `1px solid ${themeStyles.primary}`, borderRadius: 3, minWidth: 420 } }}
+      >
+        <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: `1px solid rgba(153,126,103,0.2)` }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <Star size={20} color="#997E67" />
+            Review Client{reviewProject ? ` — ${reviewProject.title}` : ''}
+          </Box>
+          <IconButton onClick={() => { setIsReviewModalOpen(false); setReviewProject(null); }} sx={{ color: themeStyles.primary }}><X /></IconButton>
+        </DialogTitle>
+        <DialogContent sx={{ mt: 2, display: 'flex', flexDirection: 'column', gap: 3 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, ...themeStyles.glass, p: 2, borderRadius: 2 }}>
+            <Typography sx={{ minWidth: 60 }}>Rating:</Typography>
+            <Rating
+              value={reviewRating}
+              onChange={(e, v) => setReviewRating(v)}
+              sx={{ color: themeStyles.cream, fontSize: '2rem' }}
+            />
+            <Typography sx={{ color: themeStyles.primary, fontWeight: 'bold' }}>{reviewRating}/5</Typography>
+          </Box>
+          <TextField
+            fullWidth
+            multiline
+            rows={4}
+            label="Your feedback (helps other freelancers)"
+            value={reviewComment}
+            onChange={e => setReviewComment(e.target.value)}
+            InputLabelProps={{ style: { color: themeStyles.primary } }}
+            InputProps={{ style: { color: themeStyles.cream } }}
+            sx={{ '& .MuiOutlinedInput-root': { '& fieldset': { borderColor: themeStyles.primary }, '&:hover fieldset': { borderColor: themeStyles.cream } } }}
+          />
+        </DialogContent>
+        <DialogActions sx={{ p: 3, borderTop: `1px solid rgba(153,126,103,0.2)` }}>
+          <Button onClick={() => { setIsReviewModalOpen(false); setReviewProject(null); }} sx={{ color: themeStyles.primary }}>Cancel</Button>
+          <Button variant="contained" sx={{ bgcolor: themeStyles.primary, color: themeStyles.bg, '&:hover': { bgcolor: themeStyles.cream } }} onClick={handleSubmitReview}>
+            <Sparkles size={16} style={{ marginRight: 8 }} /> Submit Review
           </Button>
         </DialogActions>
       </Dialog>

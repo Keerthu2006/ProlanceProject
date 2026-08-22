@@ -25,6 +25,9 @@ public class ReviewService {
 
     public Review submitReview(Long projectId, UUID reviewerId, UUID revieweeId,
                                int rating, String comment) {
+        if (revieweeId == null) {
+            throw new IllegalArgumentException("revieweeId must not be null – cannot determine who is being reviewed");
+        }
         Project project  = projectRepository.findById(projectId)
                 .orElseThrow(() -> new IllegalArgumentException("Project not found"));
         User reviewer = userRepository.findById(reviewerId)
@@ -47,6 +50,16 @@ public class ReviewService {
     @Transactional(readOnly = true)
     public List<Review> getFreelancerReviews(UUID freelancerId) {
         return reviewRepository.findByRevieweeId(freelancerId);
+    }
+
+    @Transactional(readOnly = true)
+    public List<Review> getReviewsGivenBy(UUID reviewerId) {
+        return reviewRepository.findByReviewerId(reviewerId);
+    }
+
+    @Transactional(readOnly = true)
+    public List<Review> getReviewsReceivedBy(UUID revieweeId) {
+        return reviewRepository.findByRevieweeId(revieweeId);
     }
 
     @Transactional(readOnly = true)

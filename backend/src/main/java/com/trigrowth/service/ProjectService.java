@@ -16,6 +16,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.Instant;
 import java.time.YearMonth;
 import java.util.List;
 import java.util.Map;
@@ -43,6 +44,10 @@ public class ProjectService {
         User client = userRepository.findById(clientId)
                 .orElseThrow(() -> new RuntimeException("User not found: " + clientId));
 
+        if (request.dueDate() != null && request.dueDate().isBefore(Instant.now())) {
+            throw new IllegalArgumentException("Project submission deadline must be a future date.");
+        }
+
         Project.ProjectType type = Project.ProjectType.INDIVIDUAL;
         if (request.projectType() != null && request.projectType().equalsIgnoreCase("TEAM")) {
             type = Project.ProjectType.TEAM;
@@ -57,9 +62,12 @@ public class ProjectService {
                 .budgetMax(request.budgetMax())
                 .skillsRequired(request.skillsRequired() != null ? request.skillsRequired() : List.of())
                 .durationDays(request.durationDays())
+                .numberOfMilestones(request.numberOfMilestones())
+                .dueDate(request.dueDate())
                 .projectType(type)
                 .teamSize(type == Project.ProjectType.TEAM ? request.teamSize() : null)
                 .status(Project.Status.OPEN)
+                .totalPaid(BigDecimal.ZERO)
                 .build();
 
         Project saved = projectRepository.save(project);
@@ -75,7 +83,7 @@ public class ProjectService {
     }
 
     public List<Project> getMyProjects(UUID clientId) {
-        return projectRepository.findByClientId(clientId);
+        return projectRepository.findByClient_Id(clientId);
     }
 
     public List<Project> getAssignedProjects(UUID freelancerId) {
@@ -114,13 +122,18 @@ public class ProjectService {
             throw new RuntimeException("Not authorized to hire on this project");
         }
 
-        // Accept the matching application
+        // Accept the matching application and update project budget
         applicationRepository.findByProjectId(projectId).stream()
                 .filter(a -> a.getFreelancer().getId().equals(freelancerId))
                 .findFirst()
                 .ifPresent(a -> {
                     a.setStatus(Application.Status.ACCEPTED);
                     applicationRepository.save(a);
+                    
+                    if (a.getProposedAmount() != null) {
+                        project.setBudgetMax(a.getProposedAmount());
+                        project.setBudgetMin(a.getProposedAmount());
+                    }
                 });
 
         // Reject all other pending applications

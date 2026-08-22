@@ -78,12 +78,12 @@ export default function ClientDashboard() {
   const [reviewComment, setReviewComment] = useState('');
   const [reviewProject, setReviewProject] = useState(null);
   const [reviewedProjects, setReviewedProjects] = useState(() => {
-    try { return JSON.parse(localStorage.getItem(`teamlance_reviewed_${user?.email}`) || '[]'); } catch { return []; }
+    try { return JSON.parse(localStorage.getItem(`reviewed_${user?.email}`) || '[]'); } catch { return []; }
   });
 
   useEffect(() => {
-    fetchProjects();
-  }, []);
+    if (activeTab === 0) fetchProjects();
+  }, [activeTab]);
 
   const fetchProjects = async () => {
     try {
@@ -123,13 +123,24 @@ export default function ClientDashboard() {
         bMax = parts.length > 1 ? (parseFloat(parts[1]) || 0) : bMin;
       }
 
+      let diffDays = 30;
+      let dueDateIso = null;
+      if (newProject.deadline) {
+        const d1 = new Date();
+        const d2 = new Date(newProject.deadline);
+        const diffTime = d2.getTime() - d1.getTime();
+        diffDays = diffTime > 0 ? Math.ceil(diffTime / (1000 * 60 * 60 * 24)) : 30;
+        dueDateIso = d2.toISOString();
+      }
+
       await api.post('/projects', {
         title: newProject.title,
         description: newProject.description,
         budgetMin: bMin,
         budgetMax: bMax,
         skillsRequired: newProject.skillsRequired.split(',').map(s => s.trim()).filter(Boolean),
-        durationDays: 30, // mock duration
+        durationDays: diffDays,
+        dueDate: dueDateIso,
         projectType: newProject.projectType.toUpperCase(),
         teamSize: newProject.projectType === 'Team' ? parseInt(newProject.teamSize) : null
       });
@@ -215,7 +226,7 @@ export default function ClientDashboard() {
       });
       const updated = [...reviewedProjects, reviewProject.id];
       setReviewedProjects(updated);
-      localStorage.setItem(`teamlance_reviewed_${user?.email}`, JSON.stringify(updated));
+      localStorage.setItem(`reviewed_${user?.email}`, JSON.stringify(updated));
       setIsReviewModalOpen(false);
       setReviewComment('');
       setReviewRating(4);
@@ -378,7 +389,7 @@ export default function ClientDashboard() {
                                 </Box>
                               ) : (
                                 <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
-                                  <Typography variant="body2">{project.bids || 0} Bids received</Typography>
+                                  <Typography variant="body2">{projectBids[project.id]?.length || 0} Bids received</Typography>
                                   {project.status === 'OPEN' && (
                                     <IconButton onClick={() => handleDeleteProject(project.id, project.status)} sx={{ color: themeStyles.primary }}>
                                       <Trash2 size={20} />
@@ -689,7 +700,7 @@ export default function ClientDashboard() {
                 </RadioGroup>
               </Grid>
               <Grid item xs={12}><TextField fullWidth label="Budget Amount / Range" value={newProject.budgetAmount} onChange={e => setNewProject({...newProject, budgetAmount: e.target.value})} InputLabelProps={{style:{color:themeStyles.primary}}} InputProps={{style:{color:themeStyles.cream}}} /></Grid>
-              <Grid item xs={12}><TextField fullWidth type="date" label="Deadline" InputLabelProps={{ shrink: true, style:{color:themeStyles.primary} }} InputProps={{style:{color:themeStyles.cream}}} value={newProject.deadline} onChange={e => setNewProject({...newProject, deadline: e.target.value})} /></Grid>
+              <Grid item xs={12}><TextField fullWidth type="date" label="Deadline" slotProps={{ inputLabel: { shrink: true, style:{color:themeStyles.primary} } }} InputProps={{style:{color:themeStyles.cream}}} value={newProject.deadline} onChange={e => setNewProject({...newProject, deadline: e.target.value})} /></Grid>
             </Grid>
           )}
           {postStep === 2 && (

@@ -1,6 +1,7 @@
 package com.trigrowth.repository;
 
 import com.trigrowth.model.Project;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -13,10 +14,16 @@ import java.util.UUID;
 @Repository
 public interface ProjectRepository extends JpaRepository<Project, Long> {
 
-    List<Project> findByClientId(UUID clientId);
+    @EntityGraph(attributePaths = {"client", "owner", "skillsRequired"}, type = EntityGraph.EntityGraphType.LOAD)
+    java.util.Optional<Project> findById(Long id);
 
-    List<Project> findByOwnerId(UUID ownerId);
+    @EntityGraph(attributePaths = {"client", "owner", "skillsRequired"}, type = EntityGraph.EntityGraphType.LOAD)
+    List<Project> findByClient_Id(UUID clientId);
 
+    @EntityGraph(attributePaths = {"client", "owner", "skillsRequired"}, type = EntityGraph.EntityGraphType.LOAD)
+    List<Project> findByOwner_Id(UUID ownerId);
+
+    @EntityGraph(attributePaths = {"client", "owner", "skillsRequired"}, type = EntityGraph.EntityGraphType.LOAD)
     List<Project> findByStatus(Project.Status status);
 
     long countByStatus(Project.Status status);
@@ -34,3 +41,4 @@ public interface ProjectRepository extends JpaRepository<Project, Long> {
             @Param("cutoff") Instant cutoff,
             @Param("recentCutoff") Instant recentCutoff);
 }
+

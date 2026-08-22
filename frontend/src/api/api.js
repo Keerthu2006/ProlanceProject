@@ -60,6 +60,17 @@ export const submitReview        = (pid, data) => api.post(`/projects/${pid}/rev
 export const getFreelancerReviews= (fid)       => api.get(`/freelancers/${fid}/reviews`);
 
 // ═══════════════════════════════════════════════════════════════
+// MILESTONES
+// ═══════════════════════════════════════════════════════════════
+export const getMilestones        = (pid)       => api.get(`/projects/${pid}/milestones`);
+export const createMilestone      = (pid, data) => api.post(`/projects/${pid}/milestones`, data);
+export const updateMilestoneStatus= (pid, mid, data) => api.put(`/projects/${pid}/milestones/${mid}/status`, data);
+export const approveMilestone     = (pid, mid)  => api.put(`/projects/${pid}/milestones/${mid}/approve`);
+export const rejectMilestone      = (pid, mid, data) => api.put(`/projects/${pid}/milestones/${mid}/reject`, data);
+export const acceptExtraMilestone = (pid, mid)  => api.put(`/projects/${pid}/milestones/${mid}/accept-extra`);
+export const rejectExtraMilestone = (pid, mid)  => api.delete(`/projects/${pid}/milestones/${mid}/reject-extra`);
+
+// ═══════════════════════════════════════════════════════════════
 // PAYMENTS
 // ═══════════════════════════════════════════════════════════════
 export const initiatePayment = (data) => api.post('/payments/initiate', data);

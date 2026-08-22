@@ -184,6 +184,20 @@ public class ProjectController {
                         req.revieweeId(), req.rating(), req.comment()));
     }
 
+    @GetMapping("/reviews/given")
+    @Operation(summary = "Get all reviews given by the current user")
+    public ResponseEntity<List<Review>> getMyGivenReviews(
+            @AuthenticationPrincipal UserDetails ud) {
+        return ResponseEntity.ok(reviewService.getReviewsGivenBy(resolveUser(ud).getId()));
+    }
+
+    @GetMapping("/reviews/received")
+    @Operation(summary = "Get all reviews received by the current user")
+    public ResponseEntity<List<Review>> getMyReceivedReviews(
+            @AuthenticationPrincipal UserDetails ud) {
+        return ResponseEntity.ok(reviewService.getReviewsReceivedBy(resolveUser(ud).getId()));
+    }
+
     // ── Helpers ───────────────────────────────────────────────────
 
     private User resolveUser(UserDetails ud) {

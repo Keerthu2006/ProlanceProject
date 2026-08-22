@@ -302,7 +302,7 @@ export default function DashboardLayout() {
                       <ListItemIcon
                         sx={{
                           minWidth: 0,
-                          mr: sidebarOpen ? 2 : 'auto',
+                          mr: sidebarOpen ? 2 : 0,
                           justifyContent: 'center',
                           color: isActive ? '#FFDBBB' : '#997E67',
                         }}

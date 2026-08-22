@@ -12,5 +12,7 @@ public record ProjectRequest(
         List<String> skillsRequired,
         Integer durationDays,
         String projectType,
-        Integer teamSize
+        Integer teamSize,
+        Integer numberOfMilestones,
+        java.time.Instant dueDate
 ) {}

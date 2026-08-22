@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Box, Paper, Typography, Button, TextField, MenuItem, LinearProgress, CircularProgress, Chip, Autocomplete } from '@mui/material';
 import { ChevronRight, ChevronLeft, Check, Target, FileText, Sparkles } from 'lucide-react';
-import axios from 'axios';
+import api from '../../api/api';
 import { toast } from 'react-toastify';
 import { useAuth } from '../../context/AuthContext';
 
@@ -23,7 +23,8 @@ export default function CreateProject() {
     description: '',
     skills: [],
     projectType: 'Individual Freelancer',
-    teamSize: '2'
+    teamSize: '2',
+    numberOfMilestones: '1'
   });
 
   const handleChange = (e) => setFormData({ ...formData, [e.target.name]: e.target.value });
@@ -41,21 +42,41 @@ export default function CreateProject() {
         bMax = parts.length > 1 ? (parseFloat(parts[1]) || 0) : bMin;
       }
 
+      if (formData.deadline) {
+        const d1 = new Date();
+        d1.setHours(0, 0, 0, 0); // start of today
+        const d2 = new Date(formData.deadline);
+        if (d2 < d1) {
+          toast.error('Project deadline must be a future date.');
+          setLoading(false);
+          return;
+        }
+      }
+
+      let diffDays = 30;
+      let dueDateIso = null;
+      if (formData.deadline) {
+        const d1 = new Date();
+        const d2 = new Date(formData.deadline);
+        const diffTime = d2.getTime() - d1.getTime();
+        diffDays = diffTime > 0 ? Math.ceil(diffTime / (1000 * 60 * 60 * 24)) : 30;
+        dueDateIso = d2.toISOString();
+      }
+
       const payload = {
         title: formData.title,
         description: formData.description,
         budgetMin: bMin,
         budgetMax: bMax,
         skillsRequired: formData.skills,
-        durationDays: 30,
+        durationDays: diffDays,
+        dueDate: dueDateIso,
+        numberOfMilestones: parseInt(formData.numberOfMilestones) || 1,
         projectType: formData.projectType === 'Team (TeamLancer)' ? 'TEAM' : 'INDIVIDUAL',
         teamSize: formData.projectType === 'Team (TeamLancer)' ? parseInt(formData.teamSize) : null
       };
 
-      const token = localStorage.getItem('pl_token');
-      await axios.post('http://localhost:8080/api/projects', payload, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      await api.post('/projects', payload);
       toast.success('Project created successfully!');
       navigate('/dashboard/client');
     } catch (error) {
@@ -106,7 +127,8 @@ export default function CreateProject() {
                   {['Fixed', 'Hourly'].map(opt => <MenuItem key={opt} value={opt}>{opt}</MenuItem>)}
                 </TextField>
                 <TextField fullWidth label="Budget Amount" name="budgetAmount" type="number" value={formData.budgetAmount} onChange={handleChange} sx={textFieldStyle} />
-                <TextField fullWidth label="Deadline" name="deadline" type="date" InputLabelProps={{ shrink: true }} value={formData.deadline} onChange={handleChange} sx={textFieldStyle} />
+                <TextField fullWidth label="Number of Milestones" name="numberOfMilestones" type="number" value={formData.numberOfMilestones} onChange={handleChange} sx={textFieldStyle} />
+                <TextField fullWidth label="Deadline" name="deadline" type="date" slotProps={{ inputLabel: { shrink: true } }} inputProps={{ min: new Date().toISOString().split('T')[0] }} value={formData.deadline} onChange={handleChange} sx={textFieldStyle} />
               </Box>
             )}
 

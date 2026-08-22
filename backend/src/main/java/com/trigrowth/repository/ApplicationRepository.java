@@ -10,8 +10,10 @@ import java.util.UUID;
 @Repository
 public interface ApplicationRepository extends JpaRepository<Application, Long> {
 
+    @org.springframework.data.jpa.repository.EntityGraph(attributePaths = {"project.client", "project.owner", "project.skillsRequired", "freelancer"})
     List<Application> findByProjectId(Long projectId);
 
+    @org.springframework.data.jpa.repository.EntityGraph(attributePaths = {"project.client", "project.owner", "project.skillsRequired", "freelancer"})
     List<Application> findByFreelancerId(UUID freelancerId);
 
     long countByProjectId(Long projectId);

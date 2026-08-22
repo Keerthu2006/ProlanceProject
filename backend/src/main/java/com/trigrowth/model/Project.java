@@ -45,10 +45,32 @@ public class Project {
     @JoinColumn(name = "owner_id")
     private User owner;
 
+    // Expose owner info without circular reference
+    @com.fasterxml.jackson.annotation.JsonProperty("ownerId")
+    public java.util.UUID getOwnerId() {
+        return owner != null ? owner.getId() : null;
+    }
+
+    @com.fasterxml.jackson.annotation.JsonProperty("ownerName")
+    public String getOwnerName() {
+        return owner != null ? owner.getFullName() : null;
+    }
+
     @com.fasterxml.jackson.annotation.JsonIgnore
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "client_id")
     private User client;
+
+    // Expose client info without circular reference
+    @com.fasterxml.jackson.annotation.JsonProperty("clientId")
+    public java.util.UUID getClientId() {
+        return client != null ? client.getId() : null;
+    }
+
+    @com.fasterxml.jackson.annotation.JsonProperty("clientName")
+    public String getClientName() {
+        return client != null ? client.getFullName() : null;
+    }
 
     @Column(nullable = false)
     private String title;
@@ -71,6 +93,13 @@ public class Project {
 
     @Column(nullable = false)
     private Integer durationDays;
+
+    private Integer numberOfMilestones;
+    
+    private Instant dueDate;
+    
+    @Builder.Default
+    private BigDecimal totalPaid = BigDecimal.ZERO;
 
     @Column(nullable = false)
     private boolean featured = false;

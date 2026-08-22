@@ -10,12 +10,15 @@ import java.util.UUID;
 @Repository
 public interface ReviewRepository extends JpaRepository<Review, Long> {
 
-    @org.springframework.data.jpa.repository.EntityGraph(attributePaths = {"project", "reviewer", "reviewee"})
+    @org.springframework.data.jpa.repository.EntityGraph(attributePaths = {"project.client", "project.owner", "project.skillsRequired", "reviewer", "reviewee"})
     List<Review> findByRevieweeId(UUID revieweeId);
 
-    @org.springframework.data.jpa.repository.EntityGraph(attributePaths = {"project", "reviewer", "reviewee"})
+    @org.springframework.data.jpa.repository.EntityGraph(attributePaths = {"project.client", "project.owner", "project.skillsRequired", "reviewer", "reviewee"})
+    List<Review> findByReviewerId(UUID reviewerId);
+
+    @org.springframework.data.jpa.repository.EntityGraph(attributePaths = {"project.client", "project.owner", "project.skillsRequired", "reviewer", "reviewee"})
     List<Review> findByProjectId(Long projectId);
 
-    @org.springframework.data.jpa.repository.EntityGraph(attributePaths = {"project", "reviewer", "reviewee"})
+    @org.springframework.data.jpa.repository.EntityGraph(attributePaths = {"project.client", "project.owner", "project.skillsRequired", "reviewer", "reviewee"})
     List<Review> findTop20ByOrderByCreatedAtDesc();
 }

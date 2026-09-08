@@ -87,28 +87,129 @@ public class ProjectService {
     }
 
     public List<Project> getAssignedProjects(UUID freelancerId) {
-        // 1. Individual projects or projects where I am the leader
-        List<Project> myProjects = new java.util.ArrayList<>(applicationRepository.findByFreelancerId(freelancerId).stream()
-                .filter(a -> a.getStatus() == Application.Status.ACCEPTED)
-                .map(Application::getProject)
-                .toList());
-
-        // 2. Projects where I am a team member
-        // Find teams I am in
-        List<com.trigrowth.model.Team> allTeams = teamRepository.findAll();
-        for (com.trigrowth.model.Team team : allTeams) {
-            boolean isMember = team.getMembers().stream().anyMatch(m -> m.getId().equals(freelancerId));
-            if (isMember && !team.getLeader().getId().equals(freelancerId)) {
-                // Find accepted applications by the leader for TEAM projects
-                List<Project> teamProjects = applicationRepository.findByFreelancerId(team.getLeader().getId()).stream()
-                        .filter(a -> a.getStatus() == Application.Status.ACCEPTED && a.getProject().getProjectType() == Project.ProjectType.TEAM)
-                        .map(Application::getProject)
-                        .toList();
-                myProjects.addAll(teamProjects);
-            }
-        }
-        return myProjects.stream().distinct().toList();
+        // Combine individual + team projects for a full picture
+        List<Project> result = new java.util.ArrayList<>();
+        result.addAll(getIndividualProjects(freelancerId));
+        result.addAll(getTeamProjectsForUser(freelancerId));
+        return result.stream().distinct().toList();
     }
+
+    /**
+     * Returns enriched assigned projects with teamId injected for frontend milestone calculation.
+     */
+    public List<Map<String, Object>> getAssignedProjectsEnriched(UUID freelancerId) {
+        List<Map<String, Object>> result = new java.util.ArrayList<>();
+
+        // Individual (solo) projects
+        applicationRepository.findByFreelancerId(freelancerId).stream()
+                .filter(a -> a.getStatus() == Application.Status.ACCEPTED && a.getTeamId() == null)
+                .forEach(a -> {
+                    Map<String, Object> entry = projectToMap(a.getProject());
+                    entry.put("teamId", null);
+                    result.add(entry);
+                });
+
+        // Team projects (member or leader)
+        List<com.trigrowth.model.Team> myTeams = teamRepository.findByMemberId(freelancerId);
+        for (com.trigrowth.model.Team team : myTeams) {
+            UUID leaderId = team.getLeader().getId();
+            applicationRepository.findByFreelancerId(leaderId).stream()
+                    .filter(a -> a.getStatus() == Application.Status.ACCEPTED
+                            && a.getTeamId() != null
+                            && a.getTeamId().equals(team.getId()))
+                    .forEach(a -> {
+                        Map<String, Object> entry = projectToMap(a.getProject());
+                        entry.put("teamId", team.getId());
+                        entry.put("teamName", team.getName());
+                        entry.put("teamMemberCount", team.getMembers().size());
+                        // Already in result? skip duplicates
+                        boolean alreadyAdded = result.stream().anyMatch(r ->
+                                r.get("id") != null && r.get("id").equals(entry.get("id"))
+                                && team.getId().equals(r.get("teamId")));
+                        if (!alreadyAdded) result.add(entry);
+                    });
+        }
+        return result;
+    }
+
+    private Map<String, Object> projectToMap(Project p) {
+        Map<String, Object> m = new java.util.LinkedHashMap<>();
+        m.put("id", p.getId());
+        m.put("title", p.getTitle());
+        m.put("description", p.getDescription());
+        m.put("budgetMin", p.getBudgetMin());
+        m.put("budgetMax", p.getBudgetMax());
+        m.put("status", p.getStatus() != null ? p.getStatus().name() : null);
+        m.put("projectType", p.getProjectType() != null ? p.getProjectType().name() : "INDIVIDUAL");
+        m.put("teamSize", p.getTeamSize());
+        m.put("durationDays", p.getDurationDays());
+        m.put("skillsRequired", p.getSkillsRequired());
+        m.put("clientId", p.getClientId());
+        m.put("clientName", p.getClientName());
+        m.put("submissionNote", p.getSubmissionNote());
+        m.put("revisionNote", p.getRevisionNote());
+        return m;
+    }
+
+    /**
+     * Solo projects: accepted applications where the teamId is null (individual bid).
+     */
+    public List<Project> getIndividualProjects(UUID freelancerId) {
+        return applicationRepository.findByFreelancerId(freelancerId).stream()
+                .filter(a -> a.getStatus() == Application.Status.ACCEPTED && a.getTeamId() == null)
+                .map(Application::getProject)
+                .distinct()
+                .toList();
+    }
+
+    /**
+     * Team projects: finds all teams the freelancer belongs to (member OR leader),
+     * then returns all projects those teams have accepted bids on.
+     */
+    public List<Project> getTeamProjectsForUser(UUID freelancerId) {
+        // All teams this user belongs to (leader or member)
+        List<com.trigrowth.model.Team> myTeams = teamRepository.findByMemberId(freelancerId);
+        List<Project> teamProjects = new java.util.ArrayList<>();
+
+        for (com.trigrowth.model.Team team : myTeams) {
+            // The leader is the one who submitted the bid (application)
+            UUID leaderId = team.getLeader().getId();
+            // Find accepted applications by the leader that were submitted on behalf of this team
+            applicationRepository.findByFreelancerId(leaderId).stream()
+                    .filter(a -> a.getStatus() == Application.Status.ACCEPTED
+                            && a.getTeamId() != null
+                            && a.getTeamId().equals(team.getId()))
+                    .map(Application::getProject)
+                    .forEach(teamProjects::add);
+        }
+        return teamProjects.stream().distinct().toList();
+    }
+
+    /**
+     * Returns all projects that a specific team has been accepted on.
+     * Used by GET /teams/{id}/projects — visible to all members of that team.
+     */
+    public List<Project> getProjectsForTeam(Long teamId, UUID requestingUserId) {
+        com.trigrowth.model.Team team = teamRepository.findById(teamId)
+                .orElseThrow(() -> new RuntimeException("Team not found: " + teamId));
+
+        // Security: ensure the requesting user is actually a member of this team
+        boolean isMember = team.getMembers().stream().anyMatch(m -> m.getId().equals(requestingUserId));
+        if (!isMember) {
+            throw new RuntimeException("Access denied: you are not a member of this team");
+        }
+
+        // Return accepted projects for the team leader's applications linked to this team
+        UUID leaderId = team.getLeader().getId();
+        return applicationRepository.findByFreelancerId(leaderId).stream()
+                .filter(a -> a.getStatus() == Application.Status.ACCEPTED
+                        && a.getTeamId() != null
+                        && a.getTeamId().equals(teamId))
+                .map(Application::getProject)
+                .distinct()
+                .toList();
+    }
+
 
     public Project getProject(Long id) {
         return projectRepository.findById(id)
@@ -199,6 +300,14 @@ public class ProjectService {
         project.setStatus(Project.Status.COMPLETED);
         Project saved = projectRepository.save(project);
         updateRevenueSnapshot(saved);
+        
+        try {
+            eventCollectorService.emit("PROJECT_COMPLETED", "PROJECT", saved.getId(),
+                    Map.of("title", saved.getTitle(), "clientId", clientId.toString(), "freelancerId", saved.getHiredFreelancerId().toString()));
+        } catch (Exception e) {
+            log.warn("Failed to emit PROJECT_COMPLETED event", e);
+        }
+        
         log.info("Project {} approved and completed by client {}", projectId, clientId);
         return saved;
     }

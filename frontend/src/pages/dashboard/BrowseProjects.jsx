@@ -3,10 +3,11 @@ import { motion } from 'framer-motion';
 import {
   Box, Grid, Card, CardContent, Typography, Button, TextField,
   Chip, Dialog, DialogTitle, DialogContent, DialogActions,
-  MenuItem, Skeleton, Divider, Alert
+  MenuItem, Skeleton, Divider, Alert, Select, FormControl, InputLabel
 } from '@mui/material';
 import { Search, DollarSign, Calendar, Users, Tag, Send, Briefcase } from 'lucide-react';
 import api from '../../api/api';
+import { getMyTeams } from '../../api/api';
 import { toast } from 'react-toastify';
 import { useAuth } from '../../context/AuthContext';
 
@@ -25,6 +26,8 @@ export default function BrowseProjects() {
   const [bidAmount, setBidAmount] = useState('');
   const [coverLetter, setCoverLetter] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [myTeams, setMyTeams] = useState([]);
+  const [selectedTeamId, setSelectedTeamId] = useState('');
 
   useEffect(() => {
     const fetchProjects = async () => {
@@ -41,7 +44,12 @@ export default function BrowseProjects() {
       }
     };
     fetchProjects();
-  }, []);
+
+    // Load teams for freelancers so the bid modal can show a team selector
+    if (user?.role === 'ROLE_FREELANCER') {
+      getMyTeams().then(r => setMyTeams(r.data || [])).catch(() => {});
+    }
+  }, [user]);
 
   // Normalize field names: real API uses skillsRequired, budgetMin/Max; mock used skills, budget
   const normalizeProject = (p) => ({
@@ -64,9 +72,15 @@ export default function BrowseProjects() {
       (categoryFilter === 'All' || p.category === categoryFilter)
     );
 
+  const isTeamProject = selectedProject?.projectType === 'TEAM' || selectedProject?.category === 'TEAM';
+
   const handleBidSubmit = async () => {
     if (!bidAmount || !coverLetter.trim()) {
       toast.warning('Please fill in both your bid amount and cover letter.');
+      return;
+    }
+    if (isTeamProject && !selectedTeamId) {
+      toast.warning('This is a team project. Please select which team you are bidding with.');
       return;
     }
     setSubmitting(true);
@@ -74,11 +88,13 @@ export default function BrowseProjects() {
       await api.post(`/projects/${selectedProject.id}/apply`, {
         proposedAmount: parseFloat(bidAmount),
         coverLetter: coverLetter.trim(),
+        teamId: isTeamProject ? parseInt(selectedTeamId) : null,
       });
       toast.success('🎉 Bid placed successfully!');
       setBidModalOpen(false);
       setBidAmount('');
       setCoverLetter('');
+      setSelectedTeamId('');
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to place bid. You may have already bid on this project.');
     } finally {
@@ -270,9 +286,39 @@ export default function BrowseProjects() {
             onChange={(e) => setCoverLetter(e.target.value)}
             sx={textFieldStyle}
           />
+          {/* Team selector — only shown for TEAM-type projects */}
+          {isTeamProject && (
+            <Box>
+              <Typography variant="caption" sx={{ color: '#997E67', mb: 1, display: 'block' }}>
+                👥 This is a Team Project — select the team you're bidding with:
+              </Typography>
+              {myTeams.length === 0 ? (
+                <Alert severity="warning" sx={{ bgcolor: 'rgba(153,126,103,0.1)', color: '#FFDBBB', border: '1px solid #664930' }}>
+                  You have no teams yet. Create a team first to bid on this project.
+                </Alert>
+              ) : (
+                <FormControl fullWidth sx={textFieldStyle}>
+                  <InputLabel sx={{ color: '#997E67' }}>Select Team</InputLabel>
+                  <Select
+                    value={selectedTeamId}
+                    onChange={e => setSelectedTeamId(e.target.value)}
+                    label="Select Team"
+                    sx={{ color: '#FFDBBB', '.MuiOutlinedInput-notchedOutline': { borderColor: '#664930' } }}
+                  >
+                    {myTeams.filter(t => t.leader?.id === user?.id || t.leaderId === user?.id).map(t => (
+                      <MenuItem key={t.id} value={t.id} sx={{ bgcolor: '#0D0A07', color: '#FFDBBB' }}>
+                        {t.name} ({t.members?.length ?? '?'} members)
+                        {(t.leader?.id === user?.id) && ' 👑 (You lead)'}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              )}
+            </Box>
+          )}
         </DialogContent>
         <DialogActions sx={{ p: 3, borderTop: '1px solid #664930' }}>
-          <Button onClick={() => { setBidModalOpen(false); setBidAmount(''); setCoverLetter(''); }} sx={{ color: '#997E67' }} disabled={submitting}>
+          <Button onClick={() => { setBidModalOpen(false); setBidAmount(''); setCoverLetter(''); setSelectedTeamId(''); }} sx={{ color: '#997E67' }} disabled={submitting}>
             Cancel
           </Button>
           <Button

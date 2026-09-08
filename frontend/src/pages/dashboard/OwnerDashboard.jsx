@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Box, Typography, Button, Tabs, Tab, Card, CardContent, Grid, 
@@ -6,6 +6,7 @@ import {
 } from '@mui/material';
 import { AreaChart, Area, BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 import { Users, Briefcase, DollarSign, Bot, Download, AlertTriangle, CheckCircle, TrendingUp } from 'lucide-react';
+import api from '../../api/api';
 
 const themeStyles = {
   bg: '#0D0A07',
@@ -20,27 +21,6 @@ const themeStyles = {
   }
 };
 
-const KPIS = [
-  { label: 'Total Users', value: '14,205', icon: Users, color: '#4caf50' },
-  { label: 'Total Projects', value: '3,842', icon: Briefcase, color: '#2196f3' },
-  { label: 'Total Revenue', value: '$2.4M', icon: DollarSign, color: '#ff9800' },
-  { label: 'AI Actions Taken', value: '842', icon: Bot, color: '#e91e63' }
-];
-
-const ACTIVITY_FEED = [
-  { id: 1, user: 'TechCorp', role: 'Client', action: 'Posted Project', time: '10 mins ago' },
-  { id: 2, user: 'Alex Rivera', role: 'Freelancer', action: 'Placed Bid', time: '15 mins ago' },
-  { id: 3, user: 'Startup Inc', role: 'Client', action: 'Completed Project', time: '1 hour ago' },
-  { id: 4, user: 'Quantum Devs', role: 'Team', action: 'Joined Platform', time: '2 hours ago' },
-];
-
-const REVENUE_DATA = [
-  { month: 'Jan', rev: 120000 }, { month: 'Feb', rev: 135000 }, { month: 'Mar', rev: 150000 },
-  { month: 'Apr', rev: 180000 }, { month: 'May', rev: 210000 }, { month: 'Jun', rev: 240000 },
-  { month: 'Jul', rev: 260000, predicted: 260000 }, { month: 'Aug', predicted: 290000 },
-  { month: 'Sep', predicted: 320000 }
-];
-
 const DOMAIN_DATA = [
   { domain: 'AI/ML', demand: 98 }, { domain: 'React', demand: 92 },
   { domain: 'Flutter', demand: 79 }, { domain: 'Blockchain', demand: 71 },
@@ -49,6 +29,41 @@ const DOMAIN_DATA = [
 
 export default function OwnerDashboard() {
   const [activeTab, setActiveTab] = useState(0);
+  const [summary, setSummary] = useState({});
+  const [events, setEvents] = useState([]);
+  const [automations, setAutomations] = useState([]);
+  const [revenue, setRevenue] = useState([]);
+  const [customers, setCustomers] = useState([]);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const [sumRes, evRes, autoRes, revRes, custRes] = await Promise.all([
+          api.get('/owner/summary'),
+          api.get('/owner/events'),
+          api.get('/owner/automation-log'),
+          api.get('/owner/revenue'),
+          api.get('/owner/neglect/customers')
+        ]);
+        setSummary(sumRes.data);
+        setEvents(evRes.data);
+        setAutomations(autoRes.data);
+        setRevenue(revRes.data);
+        setCustomers(custRes.data);
+      } catch (err) {
+        console.error("Failed to load owner data:", err);
+      }
+    };
+    fetchData();
+  }, []);
+
+  const totalRev = revenue.reduce((acc, curr) => acc + (curr.totalRevenue || 0), 0);
+  const KPIS = [
+    { label: 'Total Users', value: (summary.total_clients || 0) + (summary.total_freelancers || 0), icon: Users, color: '#4caf50' },
+    { label: 'Total Projects', value: summary.total_projects || 0, icon: Briefcase, color: '#2196f3' },
+    { label: 'Total Revenue', value: `$${totalRev}`, icon: DollarSign, color: '#ff9800' },
+    { label: 'AI Actions Taken', value: automations.length || 0, icon: Bot, color: '#e91e63' }
+  ];
 
   const handleDownload = () => {
     const content = "Date,Revenue,New Users,Projects\n2026-07-01,$50000,120,45\n";
@@ -88,15 +103,15 @@ export default function OwnerDashboard() {
             <CardContent>
               <Typography variant="h6" sx={{ mb: 2 }}>Live Activity Feed</Typography>
               <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                {ACTIVITY_FEED.map(feed => (
+                {events.slice(0, 8).map(feed => (
                   <Box key={feed.id} sx={{ p: 2, bgcolor: 'rgba(255,255,255,0.05)', borderRadius: 2 }}>
                     <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
-                      <Typography variant="subtitle2" fontWeight="bold">{feed.user}</Typography>
-                      <Typography variant="caption" sx={{ color: themeStyles.primary }}>{feed.time}</Typography>
+                      <Typography variant="subtitle2" fontWeight="bold">{feed.entityType}</Typography>
+                      <Typography variant="caption" sx={{ color: themeStyles.primary }}>{new Date(feed.createdAt).toLocaleString()}</Typography>
                     </Box>
                     <Typography variant="body2">
-                      <Chip label={feed.role} size="small" sx={{ mr: 1, height: 20, fontSize: '0.65rem', bgcolor: themeStyles.primary, color: themeStyles.bg }} />
-                      {feed.action}
+                      <Chip label={feed.eventType} size="small" sx={{ mr: 1, height: 20, fontSize: '0.65rem', bgcolor: themeStyles.primary, color: themeStyles.bg }} />
+                      Entity ID: {feed.entityId}
                     </Typography>
                   </Box>
                 ))}
@@ -120,21 +135,15 @@ export default function OwnerDashboard() {
                     </TableRow>
                   </TableHead>
                   <TableBody>
-                    <TableRow>
-                      <TableCell sx={{ color: themeStyles.cream }}>10:30 AM</TableCell>
-                      <TableCell sx={{ color: themeStyles.cream }}>Email sent to 45 inactive clients</TableCell>
-                      <TableCell><Chip label="Success" color="success" size="small" /></TableCell>
-                    </TableRow>
-                    <TableRow>
-                      <TableCell sx={{ color: themeStyles.cream }}>09:15 AM</TableCell>
-                      <TableCell sx={{ color: themeStyles.cream }}>Generated weekly financial report</TableCell>
-                      <TableCell><Chip label="Completed" color="info" size="small" /></TableCell>
-                    </TableRow>
-                    <TableRow>
-                      <TableCell sx={{ color: themeStyles.cream }}>08:00 AM</TableCell>
-                      <TableCell sx={{ color: themeStyles.cream }}>Alert: High neglect risk for User #892</TableCell>
-                      <TableCell><Chip label="Triggered" color="warning" size="small" /></TableCell>
-                    </TableRow>
+                    {automations.slice(0, 5).map(auto => (
+                      <TableRow key={auto.id}>
+                        <TableCell sx={{ color: themeStyles.cream }}>{new Date(auto.executedAt).toLocaleTimeString()}</TableCell>
+                        <TableCell sx={{ color: themeStyles.cream }}>{auto.actionType}</TableCell>
+                        <TableCell>
+                          <Chip label={auto.success ? 'Success' : 'Failed'} color={auto.success ? 'success' : 'error'} size="small" />
+                        </TableCell>
+                      </TableRow>
+                    ))}
                   </TableBody>
                 </Table>
               </TableContainer>
@@ -164,12 +173,12 @@ export default function OwnerDashboard() {
                 <Grid item xs={12} md={4}>
                   <Card sx={{ bgcolor: 'rgba(244, 67, 54, 0.1)', border: '1px solid #f44336', color: themeStyles.cream, textAlign: 'center', p: 4, borderRadius: 3 }}>
                     <Typography variant="h6" sx={{ color: '#f44336', mb: 2 }}>System Neglect Score</Typography>
-                    <Typography variant="h1" sx={{ fontWeight: 'bold' }}>24</Typography>
-                    <Typography variant="body2" sx={{ mt: 2 }}>/ 100 (Lower is better)</Typography>
+                    <Typography variant="h1" sx={{ fontWeight: 'bold' }}>{summary['customer_score'] || 0}</Typography>
+                    <Typography variant="body2" sx={{ mt: 2 }}>Severity: {summary['customer_severity'] || 'N/A'}</Typography>
                   </Card>
                   <Box sx={{ mt: 3, p: 3, ...themeStyles.glass }}>
                     <Typography variant="subtitle1" sx={{ color: themeStyles.primary, mb: 1 }}>LLM Recommendation</Typography>
-                    <Typography variant="body2" sx={{ mb: 2 }}>"15 high-value clients haven't posted in 30 days. Recommend sending a 10% platform fee discount."</Typography>
+                    <Typography variant="body2" sx={{ mb: 2 }}>{summary['customer_summary'] || 'No active recommendations.'}</Typography>
                     <Button variant="contained" size="small" sx={{ bgcolor: themeStyles.primary }}>Execute Automation</Button>
                   </Box>
                 </Grid>
@@ -213,16 +222,16 @@ export default function OwnerDashboard() {
                     <Grid item xs={12} md={3} key={feat}>
                       <Card sx={{ ...themeStyles.glass, p: 2, textAlign: 'center' }}>
                         <Typography variant="subtitle1" sx={{ color: themeStyles.cream }}>{feat}</Typography>
-                        <Typography variant="h4" sx={{ color: themeStyles.primary, my: 1 }}>{Math.floor(Math.random() * 40 + 40)}%</Typography>
-                        <Typography variant="caption" sx={{ color: 'gray' }}>Adoption Rate</Typography>
+                        <Typography variant="h4" sx={{ color: themeStyles.primary, my: 1 }}>{summary['product_score'] || 0}</Typography>
+                        <Typography variant="caption" sx={{ color: 'gray' }}>Adoption Rate Risk</Typography>
                       </Card>
                     </Grid>
                   ))}
                 </Grid>
                 <Box sx={{ mt: 4, p: 3, bgcolor: 'rgba(255,255,255,0.05)', borderRadius: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <Box>
-                    <Typography variant="subtitle1">Users ignoring AI Chat: 1,204</Typography>
-                    <Typography variant="body2" sx={{ color: themeStyles.primary }}>Send them an interactive guide to boost productivity.</Typography>
+                    <Typography variant="subtitle1">LLM Summary</Typography>
+                    <Typography variant="body2" sx={{ color: themeStyles.primary }}>{summary['product_summary'] || 'No active recommendations.'}</Typography>
                   </Box>
                   <Button variant="contained" sx={{ bgcolor: themeStyles.primary }}>Send Guide Email</Button>
                 </Box>
@@ -238,7 +247,7 @@ export default function OwnerDashboard() {
                 </Box>
                 <Box sx={{ height: 350, width: '100%', mb: 4 }}>
                   <ResponsiveContainer>
-                    <AreaChart data={REVENUE_DATA}>
+                    <AreaChart data={revenue.map(r => ({ month: r.month, rev: r.totalRevenue, predicted: r.totalRevenue * 1.1 }))}>
                       <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
                       <XAxis dataKey="month" stroke={themeStyles.primary} />
                       <YAxis stroke={themeStyles.primary} />
@@ -250,13 +259,10 @@ export default function OwnerDashboard() {
                 </Box>
                 <Grid container spacing={2}>
                   <Grid item xs={12} md={4}>
-                    <Card sx={{ ...themeStyles.glass, p: 2 }}><Typography variant="subtitle2" sx={{ color: themeStyles.primary }}>MoM Growth</Typography><Typography variant="h5" color="success.main">+14.2%</Typography></Card>
+                    <Card sx={{ ...themeStyles.glass, p: 2 }}><Typography variant="subtitle2" sx={{ color: themeStyles.primary }}>Financial Neglect Score</Typography><Typography variant="h5" color="success.main">{summary['financial_score'] || 0}</Typography></Card>
                   </Grid>
-                  <Grid item xs={12} md={4}>
-                    <Card sx={{ ...themeStyles.glass, p: 2 }}><Typography variant="subtitle2" sx={{ color: themeStyles.primary }}>Avg Contract</Typography><Typography variant="h5" color="info.main">$4,250</Typography></Card>
-                  </Grid>
-                  <Grid item xs={12} md={4}>
-                    <Card sx={{ ...themeStyles.glass, p: 2 }}><Typography variant="subtitle2" sx={{ color: themeStyles.primary }}>Projected Q-End</Typography><Typography variant="h5" color="warning.main">$870,000</Typography></Card>
+                  <Grid item xs={12} md={8}>
+                    <Card sx={{ ...themeStyles.glass, p: 2 }}><Typography variant="subtitle2" sx={{ color: themeStyles.primary }}>LLM Summary</Typography><Typography variant="body2" color="info.main">{summary['financial_summary'] || 'No alerts.'}</Typography></Card>
                   </Grid>
                 </Grid>
               </Box>
@@ -279,16 +285,15 @@ export default function OwnerDashboard() {
                   </Box>
                 </Grid>
                 <Grid item xs={12} md={6}>
-                  <Typography variant="h6" mb={2}>AI Action Plan</Typography>
-                  {DOMAIN_DATA.slice(0, 3).map(domain => (
-                    <Box key={domain.domain} sx={{ ...themeStyles.glass, p: 2, mb: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <Box>
-                        <Typography variant="subtitle1" fontWeight="bold">{domain.domain}</Typography>
-                        <Typography variant="body2" sx={{ color: themeStyles.primary }}>Demand at {domain.demand}%. High opportunity.</Typography>
-                      </Box>
-                      <Button variant="outlined" size="small" sx={{ color: themeStyles.cream, borderColor: themeStyles.primary }}>Notify Top Talent</Button>
-                    </Box>
-                  ))}
+                  <Typography variant="h6" mb={2}>Opportunity Neglect Agent</Typography>
+                  <Box sx={{ ...themeStyles.glass, p: 3, mb: 2 }}>
+                    <Typography variant="subtitle1" fontWeight="bold">Score: {summary['opportunity_score'] || 0}</Typography>
+                    <Typography variant="body2" sx={{ color: themeStyles.primary }}>Severity: {summary['opportunity_severity'] || 'N/A'}</Typography>
+                  </Box>
+                  <Box sx={{ ...themeStyles.glass, p: 3 }}>
+                    <Typography variant="subtitle1" fontWeight="bold">LLM Summary</Typography>
+                    <Typography variant="body2" sx={{ color: themeStyles.primary }}>{summary['opportunity_summary'] || 'No active recommendations.'}</Typography>
+                  </Box>
                 </Grid>
               </Grid>
             )}

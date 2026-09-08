@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import api from '../../api/api';
 import {
   Box, Typography, Grid, Card, CardContent, Chip, Table, TableBody, TableCell, 
   TableContainer, TableHead, TableRow, Paper, Button
@@ -27,29 +28,44 @@ const ENGINE_HEALTH = [
 ];
 
 export default function AIDashboard() {
-  const [feed, setFeed] = useState([]);
-  const [recommendations, setRecommendations] = useState([
-    { id: 1, text: 'Increase recommended hourly rate for React Devs by 5%', confidence: '89%', status: 'PENDING' },
-    { id: 2, text: 'Flag user "TechCorp" for potential churn risk', confidence: '92%', status: 'PENDING' },
-  ]);
+const [feed, setFeed] = useState([]);
+  const [recommendations, setRecommendations] = useState([]);
+  const [summary, setSummary] = useState({});
 
-  // Mock WebSocket for real-time feed
   useEffect(() => {
-    const actions = ['Processed project matching', 'Analyzed user behavior', 'Updated market skill trends', 'Calculated churn risk'];
-    const interval = setInterval(() => {
-      setFeed(prev => {
-        const newFeed = [{ id: Date.now(), text: actions[Math.floor(Math.random() * actions.length)], time: new Date().toLocaleTimeString() }, ...prev];
-        return newFeed.slice(0, 5);
-      });
-    }, 4000);
-    return () => clearInterval(interval);
+    const fetchData = async () => {
+      try {
+        const [sumRes, recRes, evRes] = await Promise.all([
+          api.get('/owner/summary'),
+          api.get('/owner/recommendations/pending'),
+          api.get('/owner/events')
+        ]);
+        setSummary(sumRes.data);
+        setRecommendations(recRes.data);
+        setFeed(evRes.data);
+      } catch (err) {
+        console.error("Failed to load AI data:", err);
+      }
+    };
+    fetchData();
   }, []);
 
-  const handleAction = (id, action) => {
-    setRecommendations(recommendations.map(r => r.id === id ? { ...r, status: action } : r));
+  const handleAction = async (id, action) => {
+    try {
+      if (action === 'APPROVED') {
+        await api.post(`/owner/recommendations/${id}/approve`);
+      } else {
+        await api.post(`/owner/recommendations/${id}/reject`);
+      }
+      setRecommendations(recommendations.filter(r => r.id !== id));
+    } catch (err) {
+      console.error(err);
+    }
   };
 
-  const trendData = Array.from({ length: 20 }, (_, i) => ({ time: i, load: 40 + Math.random() * 40 }));
+  const getScore = (agent) => summary[`${agent}_score`] || 0;
+
+const trendData = Array.from({ length: 20 }, (_, i) => ({ time: i, load: 40 + Math.random() * 40 }));
 
   return (
     <Box sx={{ p: 4, minHeight: '100vh', bgcolor: themeStyles.bg, color: themeStyles.cream }}>

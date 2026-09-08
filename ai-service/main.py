@@ -1,6 +1,5 @@
 """
-TriGrowth AI – FastAPI main entry point.
-Runs on port 8001. Called by Spring Boot backend.
+main.py – UPDATED: Smart event routing so each event only triggers its relevant agent.
 """
 import json
 import os
@@ -12,7 +11,7 @@ from schemas import (
     EventContext, AnalyzeEventResponse,
     DraftContentRequest, DraftContentResponse,
 )
-from agents import customer_agent, product_agent, financial_agent, opportunity_agent
+from agents import customer_agent, product_agent, financial_agent, opportunity_agent, freelancer_agent
 from engine import decision_engine, recommendation_engine
 
 load_dotenv()
@@ -20,7 +19,7 @@ load_dotenv()
 app = FastAPI(
     title="TriGrowth AI Core",
     description="Multi-agent AI engine for proactive platform growth intelligence.",
-    version="1.0.0",
+    version="2.0.0",
 )
 
 app.add_middleware(
@@ -30,26 +29,42 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# ── Event → Agent routing map ──────────────────────────────────────────────
+EVENT_AGENT_MAP = {
+    # Customer neglect
+    "CLIENT_INACTIVITY_REPORT":   [customer_agent],
+    "USER_REGISTERED":            [customer_agent],
+    # Product neglect
+    "FEATURE_USAGE_REPORT":       [product_agent],
+    "PRODUCT_NEGLECT_REPORT":     [product_agent],
+    # Financial / revenue neglect
+    "REVENUE_REPORT":             [financial_agent],
+    "REVENUE_NEGLECT_REPORT":     [financial_agent],
+    # Opportunity neglect (market trends)
+    "MARKET_TREND_REPORT":        [opportunity_agent],
+    "OPPORTUNITY_NEGLECT_REPORT": [opportunity_agent],
+    # Freelancer ghosting
+    "FREELANCER_GHOSTING_REPORT": [freelancer_agent],
+}
+
+# Default: run all agents for unknown event types
+DEFAULT_AGENTS = [customer_agent, product_agent, financial_agent, opportunity_agent, freelancer_agent]
+
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "service": "trigrowth-ai-core"}
+    return {"status": "ok", "service": "trigrowth-ai-core", "version": "2.0.0"}
 
 
 @app.post("/analyze/event", response_model=AnalyzeEventResponse)
 def analyze_event(ctx: EventContext):
     """
-    Core endpoint called by Spring Boot EventCollectorService.
-    Runs all 4 agents, passes results to Decision Engine,
-    optionally generates a Recommendation via LLM.
+    Smart-routed endpoint. Routes each event to only its relevant agent(s).
     """
-    # 1. Run all agents
-    results = [
-        customer_agent.analyze(ctx),
-        product_agent.analyze(ctx),
-        financial_agent.analyze(ctx),
-        opportunity_agent.analyze(ctx),
-    ]
+    agents_to_run = EVENT_AGENT_MAP.get(ctx.event_type, DEFAULT_AGENTS)
+
+    # 1. Run only the relevant agents
+    results = [agent.analyze(ctx) for agent in agents_to_run]
 
     # 2. Decision Engine picks the top result
     decision = decision_engine.decide(results)
@@ -69,8 +84,7 @@ def analyze_event(ctx: EventContext):
 @app.post("/draft/content", response_model=DraftContentResponse)
 def draft_content(req: DraftContentRequest):
     """
-    Generates draft content (email, social post, landing page, etc.)
-    for AutomationService when it executes DRAFT_* action types.
+    Generates draft content for AutomationService.
     """
     try:
         import groq as groq_lib
@@ -84,14 +98,13 @@ def draft_content(req: DraftContentRequest):
         )
 
         chat = client.chat.completions.create(
-            model="llama-3.1-8b-instant",
+            model="groq/compound-mini",
             messages=[{"role": "user", "content": prompt}],
             temperature=0.6,
             max_tokens=400,
         )
         content = chat.choices[0].message.content.strip()
     except Exception:
-        # Fallback template
         content = (
             f"[AUTO-GENERATED {req.action_type}]\n\n"
             f"Dear Stakeholder,\n\n"
@@ -125,35 +138,31 @@ def chat(req: ChatRequest):
         f"Focus on freelancing, project management, AI insights, market intelligence, and business growth."
     )
 
-    # Try Gemini first (gemini-2.0-flash is the correct current model)
     if gemini_key:
         try:
             import google.generativeai as genai
             genai.configure(api_key=gemini_key)
-            # Use gemini-2.0-flash (current stable model)
             model = genai.GenerativeModel(
                 model_name='gemini-2.0-flash',
                 system_instruction=system_context
             )
             response = model.generate_content(req.message)
             return ChatResponse(response=response.text)
-        except Exception as e:
-            # Try gemini-1.5-flash-latest as fallback
+        except Exception:
             try:
                 model = genai.GenerativeModel('gemini-1.5-flash-latest')
                 prompt = f"{system_context}\n\nUser: {req.message}"
                 response = model.generate_content(prompt)
                 return ChatResponse(response=response.text)
             except Exception:
-                pass  # Fall through to Groq
+                pass
 
-    # Try Groq as secondary
     if groq_key:
         try:
             import groq as groq_lib
             client = groq_lib.Groq(api_key=groq_key)
             chat_resp = client.chat.completions.create(
-                model="llama-3.1-8b-instant",
+                model="groq/compound-mini",
                 messages=[
                     {"role": "system", "content": system_context},
                     {"role": "user", "content": req.message},
@@ -165,7 +174,6 @@ def chat(req: ChatRequest):
         except Exception:
             pass
 
-    # Smart template fallback (always works, no API needed)
     msg_lower = req.message.lower()
     if any(w in msg_lower for w in ["project", "post", "create"]):
         reply = ("To post a project on ProLance:\n1. Go to your Client Dashboard\n2. Click 'Post Project'\n"
@@ -178,11 +186,12 @@ def chat(req: ChatRequest):
                  "3. Write a compelling cover letter and set your proposed amount\n"
                  "4. The client will review all bids and choose the best fit!")
     elif any(w in msg_lower for w in ["ai", "neglect", "recommendation"]):
-        reply = ("ProLance AI continuously monitors 4 neglect areas:\n"
+        reply = ("ProLance AI continuously monitors 5 neglect areas:\n"
                  "• Customer Neglect — detects inactive clients and auto-engages\n"
                  "• Product Neglect — guides confused users through features\n"
-                 "• Financial Neglect — ML predicts revenue risks and opportunities\n"
-                 "• Opportunity Neglect — suggests trending skills and projects\n"
+                 "• Financial Neglect — Random Forest ML predicts revenue risks\n"
+                 "• Opportunity Neglect — SEO trends + freelancer skill gap analysis\n"
+                 "• Freelancer Neglect — detects ghosting freelancers in real-time\n"
                  "Check the AI Intelligence Center for real-time insights!")
     elif any(w in msg_lower for w in ["cancel", "delete", "remove"]):
         reply = ("To cancel a project:\n• Within 48 hours of acceptance: use the AI Assistant or email support\n"
@@ -196,12 +205,12 @@ def chat(req: ChatRequest):
                  "• All team members see project updates in real-time!")
     else:
         reply = (f"Hello! I'm ProLance AI, your intelligent business assistant. 🚀\n\n"
-                 f"I'm currently running in **Limited Template Mode** because the Gemini API quota limit has been reached (Error 429).\n\n"
+                 f"I'm currently running in **Limited Template Mode** because the AI API is unavailable.\n\n"
                  f"I can still help you with these topics if you use keywords:\n"
                  f"• 'project' - Posting and managing projects\n"
                  f"• 'bid' - Applying for projects\n"
                  f"• 'ai' - Understanding AI recommendations\n"
                  f"• 'team' - Using TeamLancer features\n\n"
-                 f"*(To restore full AI capabilities for manual questions, please check your Google Gemini API billing or provide a valid GROQ_API_KEY in the .env file)*")
+                 f"*(To restore full AI, please provide a valid GROQ_API_KEY or GEMINI_API_KEY in the .env file)*")
 
     return ChatResponse(response=reply)

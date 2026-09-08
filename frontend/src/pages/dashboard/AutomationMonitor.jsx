@@ -1,21 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Box, Typography, Card, CardContent, Chip, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper, Button, IconButton, Grid } from '@mui/material';
 import { Zap, Mail, Bell, FileText, RefreshCw, Check, X, Clock } from 'lucide-react';
 import { toast } from 'react-toastify';
-
-const MOCK_LOGS = [
-  {id:1,  type:'EMAIL',    trigger:'Customer Neglect', target:'client@company.com', status:'SUCCESS', time:'2 min ago',  action:'Re-engagement email sent'},
-  {id:2,  type:'NOTIF',   trigger:'Bid Accepted',     target:'freelancer@dev.io',  status:'SUCCESS', time:'8 min ago',  action:'Push notification sent'},
-  {id:3,  type:'REPORT',  trigger:'Weekly Schedule',  target:'admin@prolance.ai',  status:'SUCCESS', time:'1 hr ago',   action:'Revenue report emailed'},
-  {id:4,  type:'EMAIL',   trigger:'Opportunity Alert', target:'dev@techpro.io',    status:'FAILED',  time:'2 hr ago',   action:'SMTP timeout - retrying'},
-  {id:5,  type:'EMAIL',   trigger:'Product Neglect',  target:'user@startup.com',  status:'PENDING', time:'5 min ago',  action:'Feature guide queued'},
-  {id:6,  type:'REPORT',  trigger:'Financial Neglect', target:'cfo@company.com',  status:'SUCCESS', time:'3 hr ago',   action:'Risk report generated'},
-  {id:7,  type:'NOTIF',   trigger:'Market Alert',     target:'all_freelancers',   status:'SUCCESS', time:'4 hr ago',   action:'AI/ML trend notification'},
-  {id:8,  type:'EMAIL',   trigger:'Discount Offer',   target:'inactive@client.io', status:'SUCCESS', time:'6 hr ago',  action:'10% discount coupon sent'},
-  {id:9,  type:'EMAIL',   trigger:'Milestone Overdue', target:'dev@agency.com',   status:'FAILED',  time:'8 hr ago',   action:'Email bounce - invalid addr'},
-  {id:10, type:'REPORT',  trigger:'Daily Schedule',   target:'admin@prolance.ai',  status:'SUCCESS', time:'1 day ago',  action:'Activity report generated'},
-];
+import api from '../../api/api';
 
 const getStatusColor = (status) => {
   if (status === 'SUCCESS') return { color: '#34d399', bg: 'rgba(52, 211, 153, 0.1)' };
@@ -31,8 +19,31 @@ const getTypeIcon = (type) => {
 
 export default function AutomationMonitor() {
   const [filter, setFilter] = useState('All');
+  const [logs, setLogs] = useState([]);
 
-  const filteredLogs = filter === 'All' ? MOCK_LOGS : MOCK_LOGS.filter(l => l.type === filter.toUpperCase());
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const res = await api.get('/owner/automation-log');
+        setLogs(res.data);
+      } catch (err) {
+        console.error("Failed to fetch automation logs", err);
+      }
+    };
+    fetchData();
+  }, []);
+
+  const filteredLogs = filter === 'All' ? logs : logs.filter(l => (l.actionType || '').toUpperCase().includes(filter.toUpperCase()));
+
+  const successCount = logs.filter(l => l.success).length;
+  const failedCount = logs.filter(l => !l.success && l.errorMessage).length;
+  const successRate = logs.length > 0 ? Math.round((successCount / logs.length) * 100) + '%' : '0%';
+  const stats = [
+    { label: 'Total Today', value: logs.length, color: '#60a5fa' },
+    { label: 'Success Rate', value: successRate, color: '#34d399' },
+    { label: 'Failed', value: failedCount, color: '#f87171' },
+    { label: 'Pending', value: 0, color: '#fbbf24' },
+  ];
 
   const handleAction = (msg) => {
     toast.success(msg);
@@ -48,12 +59,7 @@ export default function AutomationMonitor() {
       </Box>
 
       <Grid container spacing={3} sx={{ mb: 4 }}>
-        {[
-          { label: 'Total Today', value: 10, color: '#60a5fa' },
-          { label: 'Success Rate', value: '80%', color: '#34d399' },
-          { label: 'Failed', value: 2, color: '#f87171' },
-          { label: 'Pending', value: 1, color: '#fbbf24' },
-        ].map((stat, i) => (
+        {stats.map((stat, i) => (
           <Grid item xs={6} md={3} key={i}>
             <Card sx={{ bgcolor: 'rgba(13, 10, 7, 0.7)', border: '1px solid #664930', borderRadius: 2 }}>
               <CardContent sx={{ textAlign: 'center' }}>
@@ -99,22 +105,25 @@ export default function AutomationMonitor() {
             </TableRow>
           </TableHead>
           <TableBody>
-            {filteredLogs.map((log, i) => (
-              <TableRow key={log.id} sx={{ '& td': { borderColor: 'rgba(102, 73, 48, 0.3)' } }}>
-                <TableCell sx={{ color: '#FFDBBB' }}>
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>{getTypeIcon(log.type)} {log.type}</Box>
+            {filteredLogs.map((log) => (
+              <TableRow key={log.id} sx={{ '& td': { borderColor: 'rgba(102, 73, 48, 0.3)', color: '#FFDBBB' } }}>
+                <TableCell>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <FileText size={16} />
+                    {log.actionType}
+                  </Box>
                 </TableCell>
-                <TableCell sx={{ color: '#FFDBBB' }}>{log.trigger}</TableCell>
-                <TableCell sx={{ color: '#997E67' }}>{log.target}</TableCell>
-                <TableCell sx={{ color: '#FFDBBB' }}>{log.action}</TableCell>
+                <TableCell sx={{ color: '#997E67' }}>System Event</TableCell>
+                <TableCell>System</TableCell>
+                <TableCell sx={{ color: '#997E67' }}>{log.actionDetail || log.actionType}</TableCell>
                 <TableCell>
                   <Chip 
-                    label={log.status} size="small" 
-                    icon={log.status === 'SUCCESS' ? <Check size={14}/> : (log.status === 'FAILED' ? <X size={14}/> : <Clock size={14}/>)}
-                    sx={{ bgcolor: getStatusColor(log.status).bg, color: getStatusColor(log.status).color, fontWeight: 'bold' }} 
+                    label={log.success ? 'SUCCESS' : 'FAILED'} 
+                    size="small" 
+                    sx={getStatusColor(log.success ? 'SUCCESS' : 'FAILED')} 
                   />
                 </TableCell>
-                <TableCell sx={{ color: '#997E67' }}>{log.time}</TableCell>
+                <TableCell sx={{ color: '#997E67' }}>{new Date(log.executedAt).toLocaleString()}</TableCell>
               </TableRow>
             ))}
           </TableBody>

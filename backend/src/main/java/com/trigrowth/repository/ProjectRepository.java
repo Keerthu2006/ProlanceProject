@@ -40,5 +40,9 @@ public interface ProjectRepository extends JpaRepository<Project, Long> {
     List<Project> findOpenWithNoApplicationsOlderThan(
             @Param("cutoff") Instant cutoff,
             @Param("recentCutoff") Instant recentCutoff);
+
+    long countByClient_IdAndCreatedAtAfter(java.util.UUID clientId, Instant since);
+
+    long countByClient_IdAndStatus(java.util.UUID clientId, Project.Status status);
 }
 

@@ -33,7 +33,7 @@ public class DatabaseSeeder implements CommandLineRunner {
 
     @Override
     public void run(String... args) throws Exception {
-        if (userRepository.count() > 0) {
+        if (userRepository.countByRole(Role.ROLE_FREELANCER) > 0) {
             return; // Already seeded
         }
 
@@ -57,8 +57,10 @@ public class DatabaseSeeder implements CommandLineRunner {
             // Customer Neglect: Make ~60% of clients inactive
             if (random.nextDouble() > 0.4) {
                 int daysInactive = 40 + random.nextInt(60);
-                jdbcTemplate.update("UPDATE users SET updated_at = ? WHERE id = ?",
-                        java.sql.Timestamp.from(Instant.now().minus(daysInactive, ChronoUnit.DAYS)), client.getId());
+                jdbcTemplate.update("UPDATE users SET last_login_at = ?, created_at = ? WHERE id = ?",
+                        java.sql.Timestamp.from(Instant.now().minus(daysInactive, ChronoUnit.DAYS)),
+                        java.sql.Timestamp.from(Instant.now().minus(daysInactive + 10, ChronoUnit.DAYS)),
+                        client.getId());
             }
         }
 
@@ -112,6 +114,11 @@ public class DatabaseSeeder implements CommandLineRunner {
                     .skillsRequired(reqSkills)
                     .status(random.nextDouble() > 0.3 ? Status.OPEN : Status.COMPLETED)
                     .build());
+            
+            // Randomly push project creation date to the past so it doesn't inflate the 30d activity score
+            int daysOld = 10 + random.nextInt(100);
+            jdbcTemplate.update("UPDATE projects SET created_at = ? WHERE id = ?",
+                    java.sql.Timestamp.from(Instant.now().minus(daysOld, ChronoUnit.DAYS)), p.getId());
             projects.add(p);
         }
 

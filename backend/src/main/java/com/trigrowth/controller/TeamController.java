@@ -1,8 +1,10 @@
 package com.trigrowth.controller;
 
+import com.trigrowth.model.Project;
 import com.trigrowth.model.Team;
 import com.trigrowth.model.User;
 import com.trigrowth.repository.UserRepository;
+import com.trigrowth.service.ProjectService;
 import com.trigrowth.service.TeamService;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
@@ -24,6 +26,7 @@ public class TeamController {
 
     private final TeamService    teamService;
     private final UserRepository userRepository;
+    private final ProjectService projectService;
 
     @PostMapping
     public ResponseEntity<Team> createTeam(
@@ -45,11 +48,28 @@ public class TeamController {
         return ResponseEntity.ok(teamService.getTeam(id));
     }
 
+    /**
+     * Returns ALL teams the current user belongs to — whether they are the leader OR just a member.
+     * This fixes the bug where Freelancer 2 (non-leader) couldn't see their teams.
+     */
     @GetMapping("/mine")
     public ResponseEntity<List<Team>> getMyTeams(@AuthenticationPrincipal UserDetails ud) {
         User user = userRepository.findByEmail(ud.getUsername())
                 .orElseThrow(() -> new IllegalStateException("User not found"));
-        return ResponseEntity.ok(teamService.getTeamsByLeader(user.getId()));
+        return ResponseEntity.ok(teamService.getTeamsForUser(user.getId()));
+    }
+
+    /**
+     * Returns all projects that the given team has been accepted into.
+     * Visible to all members of that team.
+     */
+    @GetMapping("/{id}/projects")
+    public ResponseEntity<List<Project>> getTeamProjects(
+            @PathVariable Long id,
+            @AuthenticationPrincipal UserDetails ud) {
+        User user = userRepository.findByEmail(ud.getUsername())
+                .orElseThrow(() -> new IllegalStateException("User not found"));
+        return ResponseEntity.ok(projectService.getProjectsForTeam(id, user.getId()));
     }
 
     public record CreateTeamRequest(String name, List<UUID> memberIds) {}

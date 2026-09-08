@@ -74,4 +74,10 @@ public class TeamService {
     public List<Team> getTeamsByLeader(UUID leaderId) {
         return teamRepository.findByLeaderId(leaderId);
     }
+
+    /** Returns ALL teams the user is part of (as leader OR member) */
+    @Transactional(readOnly = true)
+    public List<Team> getTeamsForUser(UUID userId) {
+        return teamRepository.findByMemberId(userId);
+    }
 }

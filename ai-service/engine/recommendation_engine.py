@@ -89,6 +89,18 @@ def _fallback(top_agent: AgentResult, ctx: EventContext) -> RecommendationRespon
                 {"action_type": "DRAFT_LANDING_PAGE",       "action_detail": "Draft 'Join as a [skill] Expert' landing page"},
             ],
         },
+        "FreelancerNeglectAgent": {
+            "problem": "Freelancers are actively ghosting and ignoring direct messages from clients.",
+            "reason": "Freelancers may be overbooked, inactive, or not receiving platform notifications.",
+            "prediction": "Clients will lose trust in the platform and cancel their projects immediately.",
+            "recommended_action": "Send an automated high-priority SMS ping to the offending freelancers.",
+            "expected_improvement": "60% of ghosting freelancers will reply within 4 hours of the SMS ping.",
+            "confidence": 85.0,
+            "automation_plan": [
+                {"action_type": "NOTIFY_FREELANCERS", "action_detail": "Send URGENT SMS ping to ghosting freelancers"},
+                {"action_type": "EMAIL_CLIENT",        "action_detail": "Send client a 'We are following up' reassurance email"},
+            ],
+        },
     }
 
     tpl = templates.get(agent, templates["CustomerNeglectAgent"])
@@ -110,7 +122,7 @@ def generate(top_agent: AgentResult, ctx: EventContext) -> RecommendationRespons
 
     try:
         chat = _groq_client.chat.completions.create(
-            model="llama-3.1-8b-instant",
+            model="groq/compound-mini",
             messages=[
                 {"role": "system", "content": _SYSTEM_PROMPT},
                 {"role": "user",   "content": user_prompt},

@@ -17,6 +17,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import com.trigrowth.dto.ProjectRequest;
 
@@ -57,9 +58,9 @@ public class ProjectController {
     }
 
     @GetMapping("/assigned")
-    @Operation(summary = "Freelancer's assigned projects")
-    public ResponseEntity<List<Project>> getAssignedProjects(@AuthenticationPrincipal UserDetails ud) {
-        return ResponseEntity.ok(projectService.getAssignedProjects(resolveUser(ud).getId()));
+    @Operation(summary = "Freelancer's assigned projects (enriched with teamId for milestone splits)")
+    public ResponseEntity<List<Map<String, Object>>> getAssignedProjects(@AuthenticationPrincipal UserDetails ud) {
+        return ResponseEntity.ok(projectService.getAssignedProjectsEnriched(resolveUser(ud).getId()));
     }
 
     @GetMapping("/{id}")
@@ -132,14 +133,28 @@ public class ProjectController {
     // ── Applications ──────────────────────────────────────────────
 
     @PostMapping("/{id}/apply")
-    @Operation(summary = "Apply to a project (FREELANCER)")
+    @Operation(summary = "Apply to a project (FREELANCER). Pass teamId to bid on behalf of a team.")
     public ResponseEntity<Application> apply(
             @PathVariable Long id,
             @AuthenticationPrincipal UserDetails ud,
             @Valid @RequestBody ApplicationRequest req) {
         return ResponseEntity.status(HttpStatus.CREATED).body(
                 applicationService.apply(id, resolveUser(ud).getId(),
-                        req.coverLetter(), req.proposedAmount()));
+                        req.coverLetter(), req.proposedAmount(), req.teamId()));
+    }
+
+    /** Individual (solo) projects for the current freelancer */
+    @GetMapping("/assigned/individual")
+    @Operation(summary = "Freelancer's solo assigned projects (no team)")
+    public ResponseEntity<List<Project>> getIndividualProjects(@AuthenticationPrincipal UserDetails ud) {
+        return ResponseEntity.ok(projectService.getIndividualProjects(resolveUser(ud).getId()));
+    }
+
+    /** Team projects the current freelancer is part of (leader or member) */
+    @GetMapping("/assigned/team")
+    @Operation(summary = "All team projects the current freelancer is part of")
+    public ResponseEntity<List<Project>> getMyTeamProjects(@AuthenticationPrincipal UserDetails ud) {
+        return ResponseEntity.ok(projectService.getTeamProjectsForUser(resolveUser(ud).getId()));
     }
 
     @GetMapping("/{id}/applications")
@@ -209,7 +224,8 @@ public class ProjectController {
  
     public record ApplicationRequest(
             @NotBlank String coverLetter,
-            @NotNull BigDecimal proposedAmount
+            @NotNull BigDecimal proposedAmount,
+            Long teamId   // null = individual bid; non-null = team bid
     ) {}
  
     public record MessageRequest(@NotBlank String content) {}

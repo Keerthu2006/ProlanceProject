@@ -23,11 +23,13 @@ public class Team {
     @Column(nullable = false)
     private String name;
 
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @com.fasterxml.jackson.annotation.JsonIgnoreProperties({"password","authorities","hibernateLazyInitializer","handler","accountNonExpired","accountNonLocked","credentialsNonExpired","enabled"})
+    @ManyToOne(fetch = FetchType.EAGER, optional = false)
     @JoinColumn(name = "leader_id")
     private User leader;
 
-    @ManyToMany(fetch = FetchType.LAZY)
+    @com.fasterxml.jackson.annotation.JsonIgnoreProperties({"password","authorities","hibernateLazyInitializer","handler","accountNonExpired","accountNonLocked","credentialsNonExpired","enabled"})
+    @ManyToMany(fetch = FetchType.EAGER)
     @JoinTable(
             name = "team_members",
             joinColumns = @JoinColumn(name = "team_id"),

@@ -150,9 +150,24 @@ export default function AuthPages({ initialRegister }) {
     window.location.href = `http://localhost:8080/api/oauth2/authorization/google?role=${encodeURIComponent(formData.role)}`;
   };
 
-  const handleOwnerBypass = () => {
-    login('owner-bypass-token', { email: 'admin@prolance.ai', role: 'ROLE_OWNER', fullName: 'System Admin' });
-    navigate('/dashboard/admin');
+  const handleOwnerBypass = async () => {
+    setLoading(true);
+    try {
+      const res = await axios.post('http://localhost:8080/api/auth/login', {
+        email: 'admin@prolance.ai',
+        password: 'admin123',
+        role: 'ROLE_OWNER'
+      });
+      if (res.data?.accessToken) {
+        login(res.data.accessToken, { email: 'admin@prolance.ai', role: 'ROLE_OWNER', fullName: 'System Admin' });
+        navigate('/dashboard/admin');
+        toast.success('System Administrator Access Granted');
+      }
+    } catch (err) {
+      toast.error('Admin login failed. Please ensure backend is running.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const pw = formData.password;

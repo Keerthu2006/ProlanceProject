@@ -72,11 +72,11 @@ function AnimatedRoutes() {
             <Route index element={<DashboardRedirect />} />
             <Route path="client" element={<ClientDashboard />} />
             <Route path="freelancer" element={<FreelancerDashboard />} />
-            <Route path="admin" element={<OwnerDashboard />} />
-            <Route path="owner" element={<OwnerDashboard />} />
-            <Route path="ai" element={<AIDashboard />} />
-            <Route path="market-intel" element={<MarketIntelligencePage />} />
-            <Route path="neglect" element={<NeglectDashboard />} />
+            <Route path="admin" element={<ProtectedRoute allowedRoles={['ROLE_OWNER', 'ROLE_ADMIN']}><OwnerDashboard /></ProtectedRoute>} />
+            <Route path="owner" element={<ProtectedRoute allowedRoles={['ROLE_OWNER', 'ROLE_ADMIN']}><OwnerDashboard /></ProtectedRoute>} />
+            <Route path="ai" element={<ProtectedRoute allowedRoles={['ROLE_OWNER', 'ROLE_ADMIN']}><AIDashboard /></ProtectedRoute>} />
+            <Route path="market-intel" element={<ProtectedRoute allowedRoles={['ROLE_OWNER', 'ROLE_ADMIN']}><MarketIntelligencePage /></ProtectedRoute>} />
+            <Route path="neglect" element={<ProtectedRoute allowedRoles={['ROLE_OWNER', 'ROLE_ADMIN']}><NeglectDashboard /></ProtectedRoute>} />
             <Route path="create-project" element={<CreateProject />} />
             <Route path="project/:id" element={<ProjectDetail />} />
             <Route path="browse-projects" element={<BrowseProjects />} />
@@ -87,9 +87,9 @@ function AnimatedRoutes() {
             <Route path="settings" element={<SettingsPage />} />
             <Route path="reviews" element={<ReviewsPage />} />
             <Route path="skills" element={<SkillDevelopment />} />
-            <Route path="automation" element={<AutomationMonitor />} />
-            <Route path="system-health" element={<SystemHealth />} />
-            <Route path="reports" element={<ReportsPage />} />
+            <Route path="automation" element={<ProtectedRoute allowedRoles={['ROLE_OWNER', 'ROLE_ADMIN']}><AutomationMonitor /></ProtectedRoute>} />
+            <Route path="system-health" element={<ProtectedRoute allowedRoles={['ROLE_OWNER', 'ROLE_ADMIN']}><SystemHealth /></ProtectedRoute>} />
+            <Route path="reports" element={<ProtectedRoute allowedRoles={['ROLE_OWNER', 'ROLE_ADMIN']}><ReportsPage /></ProtectedRoute>} />
           </Route>
 
           <Route path="*" element={<Navigate to="/" replace />} />
@@ -143,9 +143,14 @@ function OAuthCallback() {
   );
 }
 
-function ProtectedRoute({ children }) {
+function ProtectedRoute({ children, allowedRoles }) {
   const { user } = useAuth();
   if (!user) return <Navigate to="/login" replace />;
+  if (allowedRoles && !allowedRoles.includes(user.role)) {
+    if (user.role === 'ROLE_CLIENT') return <Navigate to="/dashboard/client" replace />;
+    if (user.role === 'ROLE_OWNER' || user.role === 'ROLE_ADMIN') return <Navigate to="/dashboard/admin" replace />;
+    return <Navigate to="/dashboard/freelancer" replace />;
+  }
   return children;
 }
 

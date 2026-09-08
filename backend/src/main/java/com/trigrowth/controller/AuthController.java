@@ -27,9 +27,10 @@ public class AuthController {
     @Operation(summary = "Register a new user (Owner registration disabled)")
     public ResponseEntity<AuthDto.AuthResponse> register(
             @Valid @RequestBody AuthDto.RegisterRequest request) {
-        if (request.role() == com.trigrowth.model.Role.ROLE_OWNER) {
-            throw new IllegalArgumentException("Owner registration is disabled. Please use Google OAuth.");
-        }
+        // Allow owner registration for demo purposes
+        // if (request.role() == com.trigrowth.model.Role.ROLE_OWNER) {
+        //     throw new IllegalArgumentException("Owner registration is disabled. Please use Google OAuth.");
+        // }
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(authService.register(request));
     }

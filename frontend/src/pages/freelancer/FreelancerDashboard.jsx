@@ -1,6 +1,9 @@
  import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { getMyApplications, getAssignedProjects, getMyProfile, getOpenProjects } from '../../api/api';
+import {
+  getMyApplications, getMyProfile, getOpenProjects,
+  getIndividualProjects, getTeamProjectsForMe, getMyTeams
+} from '../../api/api';
 import { useAuth } from '../../context/AuthContext';
 import Badge from '../../components/common/Badge';
 import Spinner from '../../components/common/Spinner';
@@ -9,22 +12,81 @@ import { currency, timeAgo, skillChips } from '../../utils/helpers';
 
 export default function FreelancerDashboard() {
   const { user } = useAuth();
-  const [profile, setProfile]     = useState(null);
-  const [apps, setApps]           = useState([]);
-  const [assigned, setAssigned]   = useState([]);
-  const [openProjects, setOpenProjects] = useState([]);
-  const [loading, setLoading]     = useState(true);
+  const [profile, setProfile]           = useState(null);
+  const [apps, setApps]                 = useState([]);
+  const [soloProjects, setSoloProjects]  = useState([]);
+  const [teamProjects, setTeamProjects]  = useState([]);
+  const [myTeams, setMyTeams]           = useState([]);
+  const [openProjects, setOpenProjects]  = useState([]);
+  const [loading, setLoading]           = useState(true);
 
   useEffect(() => {
-    Promise.all([getMyProfile(), getMyApplications(), getAssignedProjects(), getOpenProjects()])
-      .then(([p, a, s, o]) => { setProfile(p.data); setApps(a.data); setAssigned(s.data); setOpenProjects(o.data); })
-      .finally(() => setLoading(false));
+    Promise.all([
+      getMyProfile(),
+      getMyApplications(),
+      getIndividualProjects(),
+      getTeamProjectsForMe(),
+      getMyTeams(),
+      getOpenProjects()
+    ])
+    .then(([p, a, solo, team, teams, o]) => {
+      setProfile(p.data);
+      setApps(a.data);
+      setSoloProjects(solo.data || []);
+      setTeamProjects(team.data || []);
+      setMyTeams(teams.data || []);
+      setOpenProjects(o.data);
+    })
+    .finally(() => setLoading(false));
   }, []);
 
   if (loading) return <div className="page"><Spinner /></div>;
 
   const pending  = apps.filter(a => a.status === 'PENDING').length;
   const accepted = apps.filter(a => a.status === 'ACCEPTED').length;
+  const totalActive = soloProjects.length + teamProjects.length;
+
+  // Helper: find the team object for a given team project
+  const getTeamForProject = (project) => {
+    return myTeams.find(t =>
+      t.projects?.some(p => p.id === project.id) // optional chaining — may not always be populated
+    );
+  };
+
+  // Group team projects by team
+  const teamProjectsByTeam = myTeams.reduce((acc, team) => {
+    const projects = teamProjects.filter(p =>
+      // We identify by checking if the project is in our teamProjects list
+      // (the backend already filtered by team membership)
+      teamProjects.some(tp => tp.id === p.id)
+    );
+    if (projects.length > 0) {
+      acc[team.id] = { team, projects };
+    }
+    return acc;
+  }, {});
+
+  const renderProjectCard = (p, isTeam = false) => (
+    <div key={p.id} className="card card-sm mb-md">
+      <div className="flex-between">
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+            {isTeam && <span style={{ fontSize: '0.7rem', background: 'var(--brand-secondary)', color: 'var(--bg-base)', padding: '2px 8px', borderRadius: '999px', fontWeight: 700 }}>👥 TEAM</span>}
+            <div style={{ fontWeight: 700 }}>{p.title}</div>
+          </div>
+          <div className="text-sm text-muted mt-xs">
+            {currency(p.budgetMin)} – {currency(p.budgetMax)} · {p.durationDays} days
+          </div>
+        </div>
+        <div className="flex gap-sm">
+          <Badge label={p.status} />
+          <Link to={`/freelancer/project/${p.id}`}>
+            <button className="btn btn-ghost btn-sm">Open</button>
+          </Link>
+        </div>
+      </div>
+    </div>
+  );
 
   return (
     <div className="page">
@@ -59,10 +121,10 @@ export default function FreelancerDashboard() {
       {/* Stats */}
       <div className="grid grid-4 mb-lg">
         {[
-          { icon:'📨', label:'Total Applications', value: apps.length     },
-          { icon:'⏳', label:'Pending',             value: pending         },
-          { icon:'✅', label:'Accepted',            value: accepted        },
-          { icon:'🔨', label:'Active Projects',     value: assigned.length },
+          { icon:'📨', label:'Total Applications', value: apps.length },
+          { icon:'⏳', label:'Pending',             value: pending     },
+          { icon:'✅', label:'Accepted',            value: accepted    },
+          { icon:'🔨', label:'Active Projects',     value: totalActive },
         ].map(s => (
           <div key={s.label} className="card stat-card">
             <div className="stat-icon">{s.icon}</div>
@@ -91,42 +153,79 @@ export default function FreelancerDashboard() {
         ))}
       </div>
 
-      {/* Active projects */}
-      <div className="section-title">Active Projects</div>
-      {assigned.length === 0
-        ? <div className="card"><EmptyState icon="🔨" title="No active projects"
-            sub="Get hired on a project first." /></div>
-        : assigned.map(p => (
-          <div key={p.id} className="card card-sm mb-md">
-            <div className="flex-between">
-              <div>
-                <div style={{ fontWeight:700 }}>{p.title}</div>
-                <div className="text-sm text-muted mt-xs">
-                  {currency(p.budget)} · {p.durationDays} days · {p.client?.fullName}
-                </div>
-              </div>
-              <div className="flex gap-sm">
-                <Badge label={p.status} />
-                <Link to={`/freelancer/project/${p.id}`}>
-                  <button className="btn btn-ghost btn-sm">Open Chat</button>
-                </Link>
-              </div>
-            </div>
-          </div>
-        ))
+      {/* ── SOLO PROJECTS ───────────────────────────────────────────── */}
+      <div className="section-title">🧑 My Solo Projects</div>
+      {soloProjects.length === 0
+        ? <div className="card mb-lg"><EmptyState icon="🔨" title="No solo projects yet" sub="Apply to individual projects to see them here." /></div>
+        : soloProjects.map(p => renderProjectCard(p, false))
       }
 
-      {/* Recent Open Projects feed */}
-      <div className="section-title mt-lg">Recent Open Projects</div>
+      {/* ── TEAM PROJECTS ───────────────────────────────────────────── */}
+      <div className="section-title mt-lg">👥 Team Projects</div>
+      {teamProjects.length === 0 ? (
+        <div className="card mb-lg">
+          <EmptyState icon="👥" title="No team projects yet"
+            sub="Create a team and bid on a Team-type project. All members will see it here." />
+        </div>
+      ) : (
+        <>
+          {/* Group by team */}
+          {myTeams.map(team => {
+            // Find which teamProjects belong to this team
+            // Since the backend only returns projects for teams the user is in,
+            // and each project is marked with a teamId on the Application,
+            // we just show all teamProjects under each of the user's teams for now.
+            // A finer grouping would require the API to return teamId on each project.
+            return (
+              <div key={team.id} className="card mb-md" style={{ border: '1px solid rgba(153,126,103,0.3)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1rem' }}>
+                  <div style={{
+                    width: 36, height: 36, borderRadius: '50%',
+                    background: 'var(--brand-secondary)', color: 'var(--bg-base)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontWeight: 700, fontSize: '1.1rem'
+                  }}>{team.name?.charAt(0) ?? '?'}</div>
+                  <div>
+                    <div style={{ fontWeight: 700 }}>{team.name}</div>
+                    <div className="text-sm text-muted">{team.members?.length ?? 0} members · {team.leader?.id === user?.id ? '👑 You are the leader' : '🤝 You are a member'}</div>
+                  </div>
+                  <div style={{ marginLeft: 'auto', display: 'flex', gap: '0.5rem' }}>
+                    {team.members?.slice(0, 4).map(m => (
+                      <div key={m.id} title={m.fullName} style={{
+                        width: 28, height: 28, borderRadius: '50%',
+                        background: 'var(--brand-muted)', color: 'var(--text-primary)',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        fontSize: '0.7rem', fontWeight: 700
+                      }}>{m.fullName?.charAt(0) ?? '?'}</div>
+                    ))}
+                  </div>
+                </div>
+                {/* Show team projects */}
+                {teamProjects.length === 0 ? (
+                  <div className="text-sm text-muted">No accepted projects for this team yet.</div>
+                ) : teamProjects.map(p => renderProjectCard(p, true))}
+              </div>
+            );
+          })}
+          {/* Fallback if no teams found but teamProjects exist */}
+          {myTeams.length === 0 && teamProjects.map(p => renderProjectCard(p, true))}
+        </>
+      )}
+
+      {/* ── RECENT OPEN PROJECTS ────────────────────────────────────── */}
+      <div className="section-title mt-lg">🔍 Recent Open Projects</div>
       {openProjects.length === 0
         ? <div className="card"><EmptyState icon="🔍" title="No open projects found" sub="Check back later for new opportunities." /></div>
         : openProjects.slice(0, 5).map(p => (
           <div key={p.id} className="card card-sm mb-md">
             <div className="flex-between">
               <div>
-                <div style={{ fontWeight:700 }}>{p.title}</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  {p.projectType === 'TEAM' && <span style={{ fontSize: '0.7rem', background: '#3b82f6', color: '#fff', padding: '2px 8px', borderRadius: '999px', fontWeight: 700 }}>👥 TEAM</span>}
+                  <div style={{ fontWeight:700 }}>{p.title}</div>
+                </div>
                 <div className="text-sm text-muted mt-xs flex gap-sm">
-                  <span>{currency(p.budgetMin || p.budget)} - {currency(p.budgetMax || p.budget)}</span>
+                  <span>{currency(p.budgetMin)} – {currency(p.budgetMax)}</span>
                   <span>·</span>
                   <span>{p.durationDays} days</span>
                   <span>·</span>

@@ -18,6 +18,7 @@ public class AgentResult {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    @com.fasterxml.jackson.annotation.JsonIgnore
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "business_event_id")
     private BusinessEvent businessEvent;

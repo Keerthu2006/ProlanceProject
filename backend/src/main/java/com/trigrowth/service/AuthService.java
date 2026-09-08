@@ -12,17 +12,21 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Map;
 
+import lombok.extern.slf4j.Slf4j;
+
 /**
  * Handles user registration, login, and token refresh.
  */
 @Service
 @RequiredArgsConstructor
 @Transactional
+@Slf4j
 public class AuthService {
 
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
+    private final EventCollectorService eventCollectorService;
 
     public AuthDto.AuthResponse register(AuthDto.RegisterRequest request) {
         if (userRepository.existsByEmail(request.email())) {
@@ -42,6 +46,13 @@ public class AuthService {
 
         userRepository.save(user);
 
+        try {
+            eventCollectorService.emit("USER_REGISTERED", "USER", 0L,
+                    Map.of("email", user.getEmail(), "role", user.getRole().name(), "userId", user.getId().toString()));
+        } catch (Exception e) {
+            log.warn("Failed to emit USER_REGISTERED event", e);
+        }
+
         return buildAuthResponse(user);
     }
 
@@ -52,6 +63,10 @@ public class AuthService {
         if (!passwordEncoder.matches(request.password(), user.getPassword())) {
             throw new org.springframework.security.authentication.BadCredentialsException("Invalid email or password");
         }
+
+        // Track last login time for Customer Neglect Model
+        user.setLastLoginAt(java.time.Instant.now());
+        userRepository.save(user);
 
         return buildAuthResponse(user);
     }

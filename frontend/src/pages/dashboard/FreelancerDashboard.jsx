@@ -5,7 +5,8 @@ import api from '../../api/api';
 import {
   Box, Typography, Button, Tabs, Tab, Card, CardContent, Chip, Avatar,
   Dialog, DialogTitle, DialogContent, DialogActions, TextField,
-  Grid, LinearProgress, Snackbar, Alert, IconButton, Rating
+  Grid, LinearProgress, Snackbar, Alert, IconButton, Rating,
+  Select, MenuItem, FormControl, InputLabel
 } from '@mui/material';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import {
@@ -42,6 +43,7 @@ export default function FreelancerDashboard() {
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isBidModalOpen, setIsBidModalOpen] = useState(false);
   const [selectedProject, setSelectedProject] = useState(null);
+  const [selectedTeamId, setSelectedTeamId] = useState('');
   const [toast, setToast] = useState({ open: false, message: '', severity: 'success' });
   const [myBids, setMyBids] = useState([]);
   const [bidsLoading, setBidsLoading] = useState(false);
@@ -61,9 +63,7 @@ export default function FreelancerDashboard() {
   const [reviewRating, setReviewRating] = useState(4);
   const [reviewComment, setReviewComment] = useState('');
   const [reviewProject, setReviewProject] = useState(null);
-  const [reviewedProjects, setReviewedProjects] = useState(() => {
-    try { return JSON.parse(localStorage.getItem(`freelancer_reviewed_${user?.email}`) || '[]'); } catch { return []; }
-  });
+  const [reviewedProjects, setReviewedProjects] = useState([]);
 
   useEffect(() => {
     const fetchProfile = async () => {
@@ -143,6 +143,15 @@ export default function FreelancerDashboard() {
     try {
       const res = await api.get('/projects/assigned');
       setAssignedProjects(res.data || []);
+
+      // Fetch reviews given to hide completed projects that are already reviewed
+      try {
+        const revRes = await api.get('/projects/reviews/given');
+        const given = revRes.data || [];
+        setReviewedProjects(given.map(r => r.projectId));
+      } catch (e) {
+        console.warn('Could not fetch reviews given', e);
+      }
     } catch (err) {
       console.error('Failed to fetch assigned projects', err);
     } finally {
@@ -174,7 +183,6 @@ export default function FreelancerDashboard() {
       });
       const updated = [...reviewedProjects, reviewProject.id];
       setReviewedProjects(updated);
-      localStorage.setItem(`freelancer_reviewed_${user?.email}`, JSON.stringify(updated));
       setIsReviewModalOpen(false);
       setReviewComment('');
       setReviewRating(4);
@@ -207,12 +215,21 @@ export default function FreelancerDashboard() {
 
   const handlePlaceBid = async () => {
     try {
-      await api.post(`/projects/${selectedProject.id}/apply`, {
+      const payload = {
         coverLetter: bidForm.coverLetter,
         proposedAmount: parseFloat(bidForm.proposedAmount) || 0
-      });
+      };
+      if (selectedProject?.projectType === 'TEAM') {
+        if (!selectedTeamId) {
+          setToast({ open: true, message: 'This is a team project. Please select a team.', severity: 'warning' });
+          return;
+        }
+        payload.teamId = selectedTeamId;
+      }
+      await api.post(`/projects/${selectedProject.id}/apply`, payload);
       setIsBidModalOpen(false);
       setBidForm({ coverLetter: '', proposedAmount: '' });
+      setSelectedTeamId('');
       setToast({ open: true, message: 'Bid placed successfully!', severity: 'success' });
     } catch (err) {
       console.error(err);
@@ -342,115 +359,200 @@ export default function FreelancerDashboard() {
                   <Typography variant="body2" sx={{ color: themeStyles.primary }}>Once a client accepts your bid, your projects will appear here</Typography>
                 </Box>
               )}
-              {assignedProjects.map((project, idx) => {
-                const isInProgress = project.status === 'IN_PROGRESS';
-                const isUnderReview = project.status === 'UNDER_REVIEW';
-                const isCompleted = project.status === 'COMPLETED';
-                const steps = ['Accepted', 'In Progress', 'Submitted', 'Completed'];
-                const stepIdx = isInProgress ? 1 : isUnderReview ? 2 : isCompleted ? 3 : 0;
-                return (
-                  <motion.div key={project.id} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: idx * 0.1 }}>
-                    <Box sx={{ mb: 3, ...themeStyles.glass, p: 3, borderRadius: 2 }}>
-                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 2 }}>
-                        <Box>
-                          <Typography variant="h6">{project.title}</Typography>
-                          <Typography variant="body2" sx={{ color: themeStyles.primary }}>Budget: ${project.budgetMin} - ${project.budgetMax}</Typography>
-                        </Box>
-                        <Chip
-                          label={project.status.replace('_', ' ')}
-                          sx={{
-                            bgcolor: isCompleted ? 'rgba(76,175,80,0.15)' : isUnderReview ? 'rgba(33,150,243,0.15)' : 'rgba(255,152,0,0.15)',
-                            color: isCompleted ? '#4caf50' : isUnderReview ? '#2196f3' : '#ff9800',
-                            border: `1px solid ${isCompleted ? '#4caf50' : isUnderReview ? '#2196f3' : '#ff9800'}`,
-                            fontWeight: 'bold'
-                          }}
-                        />
-                      </Box>
 
-                      {/* Progress Steps */}
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0, mb: 3, mt: 1 }}>
-                        {steps.map((step, i) => (
-                          <React.Fragment key={step}>
-                            <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flex: 1 }}>
-                              <Box sx={{
-                                width: 32, height: 32, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                bgcolor: i <= stepIdx ? themeStyles.primary : 'rgba(255,219,187,0.1)',
-                                border: `2px solid ${i <= stepIdx ? themeStyles.primary : 'rgba(153,126,103,0.3)'}`,
-                                color: i <= stepIdx ? themeStyles.bg : themeStyles.primary,
-                                fontWeight: 'bold', fontSize: '0.8rem', transition: 'all 0.3s'
-                              }}>
-                                {i < stepIdx ? '✓' : i + 1}
-                              </Box>
-                              <Typography variant="caption" sx={{ mt: 0.5, color: i <= stepIdx ? themeStyles.cream : themeStyles.primary, textAlign: 'center', fontSize: '0.65rem' }}>
-                                {step}
-                              </Typography>
+              {/* === SOLO PROJECTS === */}
+              {!assignedLoading && assignedProjects.filter(p => p.projectType !== 'TEAM').length > 0 && (
+                <Box sx={{ mb: 5 }}>
+                  <Typography variant="h5" sx={{ mb: 2, pb: 1, borderBottom: `1px solid ${themeStyles.primary}55`, display: 'flex', alignItems: 'center', gap: 1 }}>
+                    🧑 My Solo Projects
+                  </Typography>
+                  {assignedProjects.filter(p => p.projectType !== 'TEAM').map((project, idx) => {
+                    const isInProgress = project.status === 'IN_PROGRESS';
+                    const isUnderReview = project.status === 'UNDER_REVIEW';
+                    const isCompleted = project.status === 'COMPLETED';
+                    const steps = ['Accepted', 'In Progress', 'Submitted', 'Completed'];
+                    const stepIdx = isInProgress ? 1 : isUnderReview ? 2 : isCompleted ? 3 : 0;
+                    return (
+                      <motion.div key={project.id} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: idx * 0.1 }}>
+                        <Box sx={{ mb: 3, ...themeStyles.glass, p: 3, borderRadius: 2 }}>
+                          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 2 }}>
+                            <Box>
+                              <Typography variant="h6">{project.title}</Typography>
+                              <Typography variant="body2" sx={{ color: themeStyles.primary }}>Budget: ${project.budgetMin} – ${project.budgetMax}</Typography>
                             </Box>
-                            {i < steps.length - 1 && (
-                              <Box sx={{ flex: 2, height: 2, bgcolor: i < stepIdx ? themeStyles.primary : 'rgba(153,126,103,0.2)', mt: -2, transition: 'all 0.3s' }} />
-                            )}
-                          </React.Fragment>
-                        ))}
-                      </Box>
-
-                      {/* Revision Note from Client */}
-                      {project.revisionNote && isInProgress && (
-                        <Box sx={{ p: 2, mb: 2, bgcolor: 'rgba(255,152,0,0.08)', borderRadius: 2, border: '1px solid rgba(255,152,0,0.3)' }}>
-                          <Typography variant="caption" sx={{ color: '#ff9800', fontWeight: 'bold', display: 'block', mb: 0.5 }}>⚠️ Client Revision Request:</Typography>
-                          <Typography variant="body2" sx={{ color: themeStyles.cream }}>{project.revisionNote}</Typography>
-                        </Box>
-                      )}
-
-                      {/* Under Review - submission info */}
-                      {isUnderReview && project.submissionNote && (
-                        <Box sx={{ p: 2, mb: 2, bgcolor: 'rgba(33,150,243,0.08)', borderRadius: 2, border: '1px solid rgba(33,150,243,0.3)' }}>
-                          <Typography variant="caption" sx={{ color: '#2196f3', fontWeight: 'bold', display: 'block', mb: 0.5 }}>📤 Submitted to Client:</Typography>
-                          <Typography variant="body2" sx={{ color: themeStyles.cream }}>{project.submissionNote}</Typography>
-                          <Typography variant="caption" sx={{ color: themeStyles.primary }}>Waiting for client approval...</Typography>
-                        </Box>
-                      )}
-
-                      {isCompleted && (
-                        <Box sx={{ p: 2, mb: 2, bgcolor: 'rgba(76,175,80,0.08)', borderRadius: 2, border: '1px solid rgba(76,175,80,0.3)' }}>
-                          <Typography variant="body2" sx={{ color: '#4caf50', fontWeight: 'bold' }}>🎉 Project Completed! Payment has been processed.</Typography>
-                        </Box>
-                      )}
-
-                      {/* Actions */}
-                      {isInProgress && (
-                        <Button
-                          variant="contained"
-                          startIcon={<CheckCircle2 size={18} />}
-                          onClick={() => setSubmitNoteModal({ open: true, project })}
-                          sx={{ bgcolor: themeStyles.primary, color: themeStyles.bg, '&:hover': { bgcolor: themeStyles.cream }, mt: 1 }}
-                        >
-                          Submit Work for Review
-                        </Button>
-                      )}
-                      {isUnderReview && (
-                        <Chip label="⏳ Awaiting Client Approval" sx={{ bgcolor: 'rgba(33,150,243,0.1)', color: '#2196f3', border: '1px solid #2196f3', mt: 1 }} />
-                      )}
-                      {isCompleted && (
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mt: 1 }}>
-                          <Chip label="✅ Delivered & Approved" sx={{ bgcolor: 'rgba(76,175,80,0.1)', color: '#4caf50', border: '1px solid #4caf50' }} />
-                          {!reviewedProjects.includes(project.id) ? (
-                            <Button
-                              variant="outlined"
-                              size="small"
-                              startIcon={<Star size={16} />}
-                              sx={{ color: themeStyles.cream, borderColor: themeStyles.primary }}
-                              onClick={() => { setReviewProject(project); setIsReviewModalOpen(true); }}
-                            >
-                              Leave Review
+                            <Chip
+                              label={project.status.replace('_', ' ')}
+                              sx={{
+                                bgcolor: isCompleted ? 'rgba(76,175,80,0.15)' : isUnderReview ? 'rgba(33,150,243,0.15)' : 'rgba(255,152,0,0.15)',
+                                color: isCompleted ? '#4caf50' : isUnderReview ? '#2196f3' : '#ff9800',
+                                border: `1px solid ${isCompleted ? '#4caf50' : isUnderReview ? '#2196f3' : '#ff9800'}`,
+                                fontWeight: 'bold'
+                              }}
+                            />
+                          </Box>
+                          {/* Progress Steps */}
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0, mb: 3, mt: 1 }}>
+                            {steps.map((step, i) => (
+                              <React.Fragment key={step}>
+                                <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flex: 1 }}>
+                                  <Box sx={{
+                                    width: 32, height: 32, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                    bgcolor: i <= stepIdx ? themeStyles.primary : 'rgba(255,219,187,0.1)',
+                                    border: `2px solid ${i <= stepIdx ? themeStyles.primary : 'rgba(153,126,103,0.3)'}`,
+                                    color: i <= stepIdx ? themeStyles.bg : themeStyles.primary,
+                                    fontWeight: 'bold', fontSize: '0.8rem', transition: 'all 0.3s'
+                                  }}>
+                                    {i < stepIdx ? '✓' : i + 1}
+                                  </Box>
+                                  <Typography variant="caption" sx={{ mt: 0.5, color: i <= stepIdx ? themeStyles.cream : themeStyles.primary, textAlign: 'center', fontSize: '0.65rem' }}>
+                                    {step}
+                                  </Typography>
+                                </Box>
+                                {i < steps.length - 1 && (
+                                  <Box sx={{ flex: 2, height: 2, bgcolor: i < stepIdx ? themeStyles.primary : 'rgba(153,126,103,0.2)', mt: -2, transition: 'all 0.3s' }} />
+                                )}
+                              </React.Fragment>
+                            ))}
+                          </Box>
+                          {project.revisionNote && isInProgress && (
+                            <Box sx={{ p: 2, mb: 2, bgcolor: 'rgba(255,152,0,0.08)', borderRadius: 2, border: '1px solid rgba(255,152,0,0.3)' }}>
+                              <Typography variant="caption" sx={{ color: '#ff9800', fontWeight: 'bold', display: 'block', mb: 0.5 }}>⚠️ Client Revision Request:</Typography>
+                              <Typography variant="body2" sx={{ color: themeStyles.cream }}>{project.revisionNote}</Typography>
+                            </Box>
+                          )}
+                          {isUnderReview && project.submissionNote && (
+                            <Box sx={{ p: 2, mb: 2, bgcolor: 'rgba(33,150,243,0.08)', borderRadius: 2, border: '1px solid rgba(33,150,243,0.3)' }}>
+                              <Typography variant="caption" sx={{ color: '#2196f3', fontWeight: 'bold', display: 'block', mb: 0.5 }}>📤 Submitted to Client:</Typography>
+                              <Typography variant="body2" sx={{ color: themeStyles.cream }}>{project.submissionNote}</Typography>
+                              <Typography variant="caption" sx={{ color: themeStyles.primary }}>Waiting for client approval...</Typography>
+                            </Box>
+                          )}
+                          {isCompleted && (
+                            <Box sx={{ p: 2, mb: 2, bgcolor: 'rgba(76,175,80,0.08)', borderRadius: 2, border: '1px solid rgba(76,175,80,0.3)' }}>
+                              <Typography variant="body2" sx={{ color: '#4caf50', fontWeight: 'bold' }}>🎉 Project Completed! Payment has been processed.</Typography>
+                            </Box>
+                          )}
+                          {isInProgress && (
+                            <Button variant="contained" startIcon={<CheckCircle2 size={18} />} onClick={() => setSubmitNoteModal({ open: true, project })} sx={{ bgcolor: themeStyles.primary, color: themeStyles.bg, '&:hover': { bgcolor: themeStyles.cream }, mt: 1 }}>
+                              Submit Work for Review
                             </Button>
-                          ) : (
-                            <Chip label="✓ Reviewed" size="small" sx={{ bgcolor: 'rgba(76,175,80,0.1)', color: '#4caf50', border: 'none' }} />
+                          )}
+                          {isUnderReview && (
+                            <Chip label="⏳ Awaiting Client Approval" sx={{ bgcolor: 'rgba(33,150,243,0.1)', color: '#2196f3', border: '1px solid #2196f3', mt: 1 }} />
+                          )}
+                          {isCompleted && (
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mt: 1 }}>
+                              <Chip label="✅ Delivered & Approved" sx={{ bgcolor: 'rgba(76,175,80,0.1)', color: '#4caf50', border: '1px solid #4caf50' }} />
+                              {!reviewedProjects.includes(project.id) ? (
+                                <Button variant="outlined" size="small" startIcon={<Star size={16} />} sx={{ color: themeStyles.cream, borderColor: themeStyles.primary }} onClick={() => { setReviewProject(project); setIsReviewModalOpen(true); }}>
+                                  Leave Review
+                                </Button>
+                              ) : (
+                                <Chip label="✓ Reviewed" size="small" sx={{ bgcolor: 'rgba(76,175,80,0.1)', color: '#4caf50', border: 'none' }} />
+                              )}
+                            </Box>
                           )}
                         </Box>
-                      )}
-                    </Box>
-                  </motion.div>
-                );
-              })}
+                      </motion.div>
+                    );
+                  })}
+                </Box>
+              )}
+
+              {/* === TEAM PROJECTS === */}
+              {!assignedLoading && assignedProjects.filter(p => p.projectType === 'TEAM').length > 0 && (
+                <Box sx={{ mb: 5 }}>
+                  <Typography variant="h5" sx={{ mb: 2, pb: 1, borderBottom: `1px solid ${themeStyles.primary}55`, display: 'flex', alignItems: 'center', gap: 1 }}>
+                    👥 My Team Projects
+                  </Typography>
+                  {assignedProjects.filter(p => p.projectType === 'TEAM').map((project, idx) => {
+                    const isInProgress = project.status === 'IN_PROGRESS';
+                    const isUnderReview = project.status === 'UNDER_REVIEW';
+                    const isCompleted = project.status === 'COMPLETED';
+                    const steps = ['Accepted', 'In Progress', 'Submitted', 'Completed'];
+                    const stepIdx = isInProgress ? 1 : isUnderReview ? 2 : isCompleted ? 3 : 0;
+                    // Find team to calculate milestone split
+                    const teamForProject = myTeams.find(t => String(t.id) === String(project.teamId)) || { members: [] };
+                    const numMembers = project.teamMemberCount || (teamForProject.members && teamForProject.members.length > 0 ? teamForProject.members.length : 1);
+                    const splitMin = (parseFloat(project.budgetMin) / numMembers).toFixed(2);
+                    const splitMax = (parseFloat(project.budgetMax) / numMembers).toFixed(2);
+                    return (
+                      <motion.div key={project.id} initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: idx * 0.1 }}>
+                        <Box sx={{ mb: 3, ...themeStyles.glass, p: 3, borderRadius: 2, border: `1px solid ${themeStyles.primary}44` }}>
+                          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1 }}>
+                            <Box>
+                              <Typography variant="h6">{project.title}</Typography>
+                              <Typography variant="body2" sx={{ color: themeStyles.primary }}>Total Budget: ${project.budgetMin} – ${project.budgetMax}</Typography>
+                            </Box>
+                            <Chip
+                              label={project.status.replace('_', ' ')}
+                              sx={{
+                                bgcolor: isCompleted ? 'rgba(76,175,80,0.15)' : isUnderReview ? 'rgba(33,150,243,0.15)' : 'rgba(255,152,0,0.15)',
+                                color: isCompleted ? '#4caf50' : isUnderReview ? '#2196f3' : '#ff9800',
+                                border: `1px solid ${isCompleted ? '#4caf50' : isUnderReview ? '#2196f3' : '#ff9800'}`,
+                                fontWeight: 'bold'
+                              }}
+                            />
+                          </Box>
+                          {/* Team milestone split banner */}
+                          <Box sx={{ p: 1.5, mb: 2, bgcolor: 'rgba(76,175,80,0.08)', borderRadius: 1.5, border: '1px solid rgba(76,175,80,0.25)', display: 'flex', alignItems: 'center', gap: 1 }}>
+                            <Typography variant="body2" sx={{ color: '#4caf50', fontWeight: 'bold' }}>
+                              💵 Your Milestone Share: ${splitMin} – ${splitMax}
+                            </Typography>
+                            <Typography variant="caption" sx={{ color: themeStyles.primary }}>
+                              (split equally among {numMembers} team member{numMembers !== 1 ? 's' : ''})
+                            </Typography>
+                          </Box>
+                          {/* Progress Steps */}
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0, mb: 3, mt: 1 }}>
+                            {steps.map((step, i) => (
+                              <React.Fragment key={step}>
+                                <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flex: 1 }}>
+                                  <Box sx={{
+                                    width: 32, height: 32, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                    bgcolor: i <= stepIdx ? themeStyles.primary : 'rgba(255,219,187,0.1)',
+                                    border: `2px solid ${i <= stepIdx ? themeStyles.primary : 'rgba(153,126,103,0.3)'}`,
+                                    color: i <= stepIdx ? themeStyles.bg : themeStyles.primary,
+                                    fontWeight: 'bold', fontSize: '0.8rem', transition: 'all 0.3s'
+                                  }}>
+                                    {i < stepIdx ? '✓' : i + 1}
+                                  </Box>
+                                  <Typography variant="caption" sx={{ mt: 0.5, color: i <= stepIdx ? themeStyles.cream : themeStyles.primary, textAlign: 'center', fontSize: '0.65rem' }}>
+                                    {step}
+                                  </Typography>
+                                </Box>
+                                {i < steps.length - 1 && (
+                                  <Box sx={{ flex: 2, height: 2, bgcolor: i < stepIdx ? themeStyles.primary : 'rgba(153,126,103,0.2)', mt: -2, transition: 'all 0.3s' }} />
+                                )}
+                              </React.Fragment>
+                            ))}
+                          </Box>
+                          {isInProgress && (
+                            <Button variant="contained" startIcon={<CheckCircle2 size={18} />} onClick={() => setSubmitNoteModal({ open: true, project })} sx={{ bgcolor: themeStyles.primary, color: themeStyles.bg, '&:hover': { bgcolor: themeStyles.cream }, mt: 1 }}>
+                              Submit Work for Review
+                            </Button>
+                          )}
+                          {isUnderReview && (
+                            <Chip label="⏳ Awaiting Client Approval" sx={{ bgcolor: 'rgba(33,150,243,0.1)', color: '#2196f3', border: '1px solid #2196f3', mt: 1 }} />
+                          )}
+                          {isCompleted && (
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mt: 1 }}>
+                              <Chip label="✅ Delivered & Approved" sx={{ bgcolor: 'rgba(76,175,80,0.1)', color: '#4caf50', border: '1px solid #4caf50' }} />
+                              {!reviewedProjects.includes(project.id) ? (
+                                <Button variant="outlined" size="small" startIcon={<Star size={16} />} sx={{ color: themeStyles.cream, borderColor: themeStyles.primary }} onClick={() => { setReviewProject(project); setIsReviewModalOpen(true); }}>
+                                  Leave Review
+                                </Button>
+                              ) : (
+                                <Chip label="✓ Reviewed" size="small" sx={{ bgcolor: 'rgba(76,175,80,0.1)', color: '#4caf50', border: 'none' }} />
+                              )}
+                            </Box>
+                          )}
+                        </Box>
+                      </motion.div>
+                    );
+                  })}
+                </Box>
+              )}
             </Box>
           )}
 
@@ -551,6 +653,36 @@ export default function FreelancerDashboard() {
         <DialogContent sx={{ mt: 2, display: 'flex', flexDirection: 'column', gap: 3 }}>
           <TextField fullWidth label="Proposed Amount" value={bidForm.proposedAmount} onChange={e=>setBidForm({...bidForm, proposedAmount: e.target.value})} InputLabelProps={{style:{color:themeStyles.primary}}} InputProps={{style:{color:themeStyles.cream}}} />
           <TextField fullWidth multiline rows={5} label="Cover Letter" value={bidForm.coverLetter} onChange={e=>setBidForm({...bidForm, coverLetter: e.target.value})} InputLabelProps={{style:{color:themeStyles.primary}}} InputProps={{style:{color:themeStyles.cream}}} />
+          
+          {selectedProject?.projectType === 'TEAM' && (
+            <Box>
+              <Typography variant="caption" sx={{ color: themeStyles.primary, mb: 1, display: 'block' }}>
+                👥 This is a Team Project — select the team you're bidding with:
+              </Typography>
+              {myTeams.length === 0 ? (
+                <Alert severity="warning" sx={{ bgcolor: 'rgba(153,126,103,0.1)', color: themeStyles.cream, border: `1px solid ${themeStyles.primary}` }}>
+                  You have no teams yet. Create a team first to bid on this project.
+                </Alert>
+              ) : (
+                <FormControl fullWidth>
+                  <InputLabel sx={{ color: themeStyles.primary }}>Select Team</InputLabel>
+                  <Select
+                    value={selectedTeamId}
+                    onChange={e => setSelectedTeamId(e.target.value)}
+                    label="Select Team"
+                    sx={{ color: themeStyles.cream, '.MuiOutlinedInput-notchedOutline': { borderColor: themeStyles.primary } }}
+                  >
+                    {myTeams.filter(t => t.leader?.id === user?.id || t.leaderId === user?.id).map(t => (
+                      <MenuItem key={t.id} value={t.id} sx={{ bgcolor: themeStyles.bg, color: themeStyles.cream }}>
+                        {t.name} ({t.members?.length ?? '?'} members)
+                        {(t.leader?.id === user?.id) && ' 👑 (You lead)'}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              )}
+            </Box>
+          )}
         </DialogContent>
         <DialogActions sx={{ p: 3 }}>
           <Button onClick={() => setIsBidModalOpen(false)} sx={{ color: themeStyles.primary }}>Cancel</Button>

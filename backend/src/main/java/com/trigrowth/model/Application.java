@@ -39,6 +39,10 @@ public class Application {
 
     private BigDecimal proposedAmount;
 
+    /** If this application was submitted on behalf of a team, this holds the team ID */
+    @Column(name = "team_id")
+    private Long teamId;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private Status status = Status.PENDING;

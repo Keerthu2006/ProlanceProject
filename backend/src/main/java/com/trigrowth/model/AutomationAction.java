@@ -18,6 +18,7 @@ public class AutomationAction {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    @com.fasterxml.jackson.annotation.JsonIgnore
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "recommendation_id")
     private Recommendation recommendation;

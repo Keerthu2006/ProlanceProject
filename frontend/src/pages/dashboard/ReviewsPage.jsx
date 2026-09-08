@@ -118,11 +118,6 @@ export default function ReviewsPage() {
   const [submitting, setSubmitting] = useState(false);
   const [toast, setToast] = useState({ open: false, message: '', severity: 'success' });
 
-  // Track reviewed project IDs locally so we don't show them as pending twice
-  const [reviewedIds, setReviewedIds] = useState(() => {
-    try { return JSON.parse(localStorage.getItem(`reviewed_${user?.email}`) || '[]'); } catch { return []; }
-  });
-
   useEffect(() => {
     if (user) loadData();
   }, [user]);
@@ -135,23 +130,20 @@ export default function ReviewsPage() {
       const projRes = await api.get(endpoint);
       const allProjects = projRes.data?.content || projRes.data || [];
       const completed = allProjects.filter(p => p.status === 'COMPLETED');
-      setPendingProjects(completed.filter(p => !reviewedIds.includes(p.id)));
 
       // 2. Fetch reviews I have GIVEN (from backend)
+      let given = [];
       try {
         const givenRes = await api.get('/projects/reviews/given');
-        setGivenReviews(givenRes.data || []);
-        // Merge with any localStorage-only reviews (for backwards compat)
-        const lsKey = `teamlance_reviews_${user?.email}`;
-        const ls = JSON.parse(localStorage.getItem(lsKey) || '[]');
-        setGivenReviews(prev => {
-          const backendIds = new Set(prev.map(r => r.id));
-          return [...prev, ...ls.filter(r => !backendIds.has(r.id))];
-        });
-      } catch {
-        const lsKey = `teamlance_reviews_${user?.email}`;
-        setGivenReviews(JSON.parse(localStorage.getItem(lsKey) || '[]'));
+        given = givenRes.data || [];
+        setGivenReviews(given);
+      } catch (e) {
+        console.warn('Could not fetch given reviews', e);
       }
+
+      // Filter pending projects: exclude those we already reviewed in the DB
+      const reviewedProjectIds = given.map(r => r.projectId);
+      setPendingProjects(completed.filter(p => !reviewedProjectIds.includes(p.id)));
 
       // 3. Fetch reviews I have RECEIVED
       try {
@@ -193,40 +185,13 @@ export default function ReviewsPage() {
         comment
       });
 
-      // Mark locally so it disappears from pending
-      const newIds = [...reviewedIds, reviewingProject.id];
-      setReviewedIds(newIds);
-      localStorage.setItem(`reviewed_${user?.email}`, JSON.stringify(newIds));
-
       setToast({ open: true, message: '✅ Review submitted!', severity: 'success' });
       setReviewingProject(null);
       setRating(5);
       setComment('');
       loadData(); // refresh all data
     } catch (err) {
-      // Still save locally even if API fails
-      const lsKey = `teamlance_reviews_${user?.email}`;
-      const newReview = {
-        id: Date.now(),
-        projectId: reviewingProject.id,
-        projectTitle: reviewingProject.title,
-        reviewerName: user?.fullName || user?.email,
-        rating,
-        comment,
-        date: new Date().toISOString()
-      };
-      const existing = JSON.parse(localStorage.getItem(lsKey) || '[]');
-      localStorage.setItem(lsKey, JSON.stringify([newReview, ...existing]));
-
-      const newIds = [...reviewedIds, reviewingProject.id];
-      setReviewedIds(newIds);
-      localStorage.setItem(`reviewed_${user?.email}`, JSON.stringify(newIds));
-
-      setToast({ open: true, message: '✅ Review saved locally.', severity: 'success' });
-      setReviewingProject(null);
-      setRating(5);
-      setComment('');
-      setPendingProjects(prev => prev.filter(p => p.id !== reviewingProject.id));
+      setToast({ open: true, message: '❌ Failed to submit review.', severity: 'error' });
     } finally {
       setSubmitting(false);
     }

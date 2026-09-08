@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import api from '../../api/api';
 import { Box, Typography, Button, Card, CardContent, Tabs, Tab, MenuItem, Select, FormControl, InputLabel, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper, Chip, Grid } from '@mui/material';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer } from 'recharts';
 import { Download, FileText, BarChart3, TrendingUp } from 'lucide-react';
@@ -28,6 +29,35 @@ const REPORT_HISTORY = [
 
 export default function ReportsPage() {
   const [period, setPeriod] = useState('Monthly');
+  const [summary, setSummary] = useState({});
+  const [revenue, setRevenue] = useState([]);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const [sumRes, revRes] = await Promise.all([
+          api.get('/owner/summary'),
+          api.get('/owner/revenue')
+        ]);
+        setSummary(sumRes.data);
+        setRevenue(revRes.data);
+      } catch (err) {
+        console.error("Failed to load owner data:", err);
+      }
+    };
+    fetchData();
+  }, []);
+
+  const totalRev = revenue.reduce((acc, curr) => acc + (curr.totalRevenue || 0), 0);
+  const totalContracts = revenue.reduce((acc, curr) => acc + (curr.contractCount || 0), 0);
+  const activeUsers = (summary.total_clients || 0) + (summary.total_freelancers || 0);
+
+  const stats = [
+    { label: 'Total Revenue', value: `$${totalRev}`, trend: '+12%' },
+    { label: 'Contracts', value: totalContracts, trend: '+5%' },
+    { label: 'Active Users', value: activeUsers, trend: '+8%' },
+    { label: 'AI Accuracy', value: '94.2%', trend: '+1.2%' },
+  ];
 
   const downloadCSV = () => {
     const csv = 'Month,Actual Revenue,Predicted Revenue\n' +
@@ -56,12 +86,7 @@ export default function ReportsPage() {
       </Box>
 
       <Grid container spacing={3} sx={{ mb: 4 }}>
-        {[
-          { label: 'Total Revenue', value: '₹18.9L', trend: '+12%' },
-          { label: 'Contracts', value: '847', trend: '+5%' },
-          { label: 'Active Users', value: '1,247', trend: '+8%' },
-          { label: 'AI Accuracy', value: '94.2%', trend: '+1.2%' },
-        ].map((kpi, i) => (
+        {stats.map((kpi, i) => (
           <Grid item xs={6} md={3} key={i}>
             <Card sx={{ bgcolor: 'rgba(13, 10, 7, 0.7)', border: '1px solid #664930', borderRadius: 2 }}>
               <CardContent>
@@ -90,7 +115,7 @@ export default function ReportsPage() {
           </Box>
           <Box sx={{ height: 350 }}>
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={REVENUE_DATA}>
+              <AreaChart data={revenue.map(r => ({ month: r.month, actual: r.totalRevenue, predicted: r.totalRevenue * 1.1 }))}>
                 <defs>
                   <linearGradient id="colorActual" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor="#997E67" stopOpacity={0.8}/>

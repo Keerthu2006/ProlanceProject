@@ -35,6 +35,8 @@ export const getOpenProjects       = ()              => api.get('/projects/open'
 export const createProject         = (data)          => api.post('/projects', data);
 export const getMyProjects         = ()              => api.get('/projects/mine');
 export const getAssignedProjects   = ()              => api.get('/projects/assigned');
+export const getIndividualProjects = ()              => api.get('/projects/assigned/individual');
+export const getTeamProjectsForMe  = ()              => api.get('/projects/assigned/team');
 export const getProject            = (id)            => api.get(`/projects/${id}`);
 export const hireFreelancer        = (pid, fid)      => api.post(`/projects/${pid}/hire/${fid}`);
 export const completeProject       = (id)            => api.post(`/projects/${id}/complete`);
@@ -89,9 +91,11 @@ export const logFeatureUsage = (key)    => api.post(`/freelancers/feature-usage/
 // ═══════════════════════════════════════════════════════════════
 // TEAMS
 // ═══════════════════════════════════════════════════════════════
-export const createTeam     = (data)   => api.post('/teams', data);
-export const getTeam        = (id)     => api.get(`/teams/${id}`);
-export const getTeamMembers = (teamId) => api.get(`/teams/${teamId}/members`);
+export const createTeam          = (data)   => api.post('/teams', data);
+export const getTeam             = (id)     => api.get(`/teams/${id}`);
+export const getTeamMembers      = (teamId) => api.get(`/teams/${teamId}/members`);
+export const getMyTeams          = ()       => api.get('/teams/mine');
+export const getTeamProjectsById = (teamId) => api.get(`/teams/${teamId}/projects`);
 
 // ═══════════════════════════════════════════════════════════════
 // OWNER DASHBOARD  (TriGrowth AI)

@@ -27,7 +27,7 @@ public class ApplicationService {
     private final com.trigrowth.repository.TeamRepository teamRepository;
 
     @Transactional
-    public Application apply(Long projectId, UUID freelancerId, String coverLetter, BigDecimal proposedAmount) {
+    public Application apply(Long projectId, UUID freelancerId, String coverLetter, BigDecimal proposedAmount, Long teamId) {
         if (applicationRepository.existsByProjectIdAndFreelancerId(projectId, freelancerId)) {
             throw new RuntimeException("Already applied to this project");
         }
@@ -38,17 +38,20 @@ public class ApplicationService {
         if (project.getStatus() != Project.Status.OPEN) {
             throw new RuntimeException("Project is not open for applications");
         }
-        
-        if (project.getProjectType() == Project.ProjectType.TEAM) {
-            List<com.trigrowth.model.Team> ledTeams = teamRepository.findByLeaderId(freelancerId);
-            if (ledTeams.isEmpty()) {
-                throw new RuntimeException("You must be a team leader to bid on a Team project.");
+
+        // If bidding as a team, validate leadership and team size
+        if (teamId != null) {
+            com.trigrowth.model.Team team = teamRepository.findById(teamId)
+                    .orElseThrow(() -> new RuntimeException("Team not found: " + teamId));
+            if (!team.getLeader().getId().equals(freelancerId)) {
+                throw new RuntimeException("Only the team leader can submit a bid on behalf of the team.");
             }
-            com.trigrowth.model.Team team = ledTeams.get(0);
-            int totalSize = team.getMembers().size() + 1; // +1 for the leader
-            if (project.getTeamSize() != null && totalSize < project.getTeamSize()) {
-                throw new RuntimeException("Your team size (" + totalSize + ") is smaller than the required team size (" + project.getTeamSize() + ").");
+            if (project.getTeamSize() != null && team.getMembers().size() < project.getTeamSize()) {
+                throw new RuntimeException("Your team size (" + team.getMembers().size() + ") is smaller than the required team size (" + project.getTeamSize() + ").");
             }
+        } else if (project.getProjectType() == Project.ProjectType.TEAM) {
+            // For TEAM projects, a teamId is required
+            throw new RuntimeException("This is a team project. Please select a team to bid with.");
         }
 
         User freelancer = userRepository.findById(freelancerId)
@@ -59,11 +62,12 @@ public class ApplicationService {
                 .freelancer(freelancer)
                 .coverLetter(coverLetter)
                 .proposedAmount(proposedAmount)
+                .teamId(teamId)
                 .status(Application.Status.PENDING)
                 .build();
 
         Application saved = applicationRepository.save(application);
-        log.info("Application {} created for project {} by freelancer {}", saved.getId(), projectId, freelancerId);
+        log.info("Application {} created for project {} by freelancer {} (teamId={})", saved.getId(), projectId, freelancerId, teamId);
         return saved;
     }
 

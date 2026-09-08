@@ -77,9 +77,7 @@ export default function ClientDashboard() {
   const [reviewRating, setReviewRating] = useState(4);
   const [reviewComment, setReviewComment] = useState('');
   const [reviewProject, setReviewProject] = useState(null);
-  const [reviewedProjects, setReviewedProjects] = useState(() => {
-    try { return JSON.parse(localStorage.getItem(`reviewed_${user?.email}`) || '[]'); } catch { return []; }
-  });
+  const [reviewedProjects, setReviewedProjects] = useState([]);
 
   useEffect(() => {
     if (activeTab === 0) fetchProjects();
@@ -96,6 +94,15 @@ export default function ClientDashboard() {
         bidsMap[p.id] = bidRes.data;
       }
       setProjectBids(bidsMap);
+
+      // Fetch reviews given to know which projects are already reviewed
+      try {
+        const reviewsRes = await api.get('/projects/reviews/given');
+        const given = reviewsRes.data || [];
+        setReviewedProjects(given.map(r => r.projectId));
+      } catch (e) {
+        console.warn('Could not fetch reviews given', e);
+      }
     } catch (err) {
       console.error(err);
       setToast({ open: true, message: 'Failed to load projects or bids', severity: 'error' });
@@ -226,7 +233,6 @@ export default function ClientDashboard() {
       });
       const updated = [...reviewedProjects, reviewProject.id];
       setReviewedProjects(updated);
-      localStorage.setItem(`reviewed_${user?.email}`, JSON.stringify(updated));
       setIsReviewModalOpen(false);
       setReviewComment('');
       setReviewRating(4);

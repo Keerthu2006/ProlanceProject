@@ -98,6 +98,8 @@ public class AutomationService {
             case "EMAIL_CLIENT"           -> "Reassurance email queued to client. Detail: " + detail;
             case "EMAIL_OWNER_REPORT"     -> "Financial risk report sent to owner(s). Detail: " + detail;
             case "SCHEDULE_FOLLOWUP"      -> "Follow-up scheduled in 3 days. Detail: " + detail;
+            case "EMAIL_INACTIVE_USER"    -> "Re-engagement email queued for inactive users. Detail: " + detail;
+            case "OFFER_DISCOUNT"         -> "Discount codes automatically generated and sent to high-risk users. Detail: " + detail;
             case "EMAIL_CUSTOMER_NEGLECT" -> sendEmail("owner@trigrowth.com", "Client Inactivity Alert", "Client inactivity detected: " + detail);
             case "EMAIL_PRODUCT_NEGLECT"  -> sendEmail("client@trigrowth.com", "Learn about Team Formation", "Hi Client, discover how Team Formation can help you: " + detail);
             case "EMAIL_FINANCIAL_REPORT" -> sendEmail("client@trigrowth.com", "Your Billing Confirmation & Revenue Report", "Here is your latest financial summary: " + detail);

@@ -30,7 +30,7 @@ Given an agent result and event context, generate a JSON recommendation with the
   ]
 }
 Valid action_types: NOTIFY_FREELANCERS, FEATURE_PROJECT, EMAIL_CLIENT, EMAIL_OWNER_REPORT,
-DRAFT_EMAIL_CAMPAIGN, DRAFT_SOCIAL_POST, DRAFT_LANDING_PAGE, DRAFT_RECRUITMENT_EMAIL, SCHEDULE_FOLLOWUP.
+DRAFT_EMAIL_CAMPAIGN, DRAFT_SOCIAL_POST, DRAFT_LANDING_PAGE, DRAFT_RECRUITMENT_EMAIL, SCHEDULE_FOLLOWUP, EMAIL_INACTIVE_USER, OFFER_DISCOUNT.
 Return ONLY valid JSON, no markdown fences."""
 
 
@@ -41,16 +41,15 @@ def _fallback(top_agent: AgentResult, ctx: EventContext) -> RecommendationRespon
 
     templates = {
         "CustomerNeglectAgent": {
-            "problem": "A client project has no applications and the client may churn.",
-            "reason": "Low platform visibility or skill supply mismatch for this project.",
-            "prediction": "Client will abandon the platform within 48 hours if not engaged.",
-            "recommended_action": "Feature the project and notify matching freelancers immediately.",
-            "expected_improvement": "70% chance of receiving first application within 6 hours.",
-            "confidence": 72.0,
+            "problem": "Multiple users (Clients and/or Freelancers) have been inactive for over 30 days.",
+            "reason": "Lack of engagement, or users not finding relevant projects/freelancers.",
+            "prediction": "High risk of permanent churn and loss of potential future platform revenue.",
+            "recommended_action": "Send a personalized re-engagement campaign with targeted discounts/opportunities.",
+            "expected_improvement": "Re-activate 15% of at-risk users within 5 days.",
+            "confidence": 80.0,
             "automation_plan": [
-                {"action_type": "NOTIFY_FREELANCERS", "action_detail": "Notify freelancers matching required skills"},
-                {"action_type": "FEATURE_PROJECT",    "action_detail": "Feature project on homepage for 48h"},
-                {"action_type": "EMAIL_CLIENT",        "action_detail": "Send reassurance email to client"},
+                {"action_type": "EMAIL_INACTIVE_USER", "action_detail": "Send automated 'We miss you' re-engagement emails to inactive users"},
+                {"action_type": "OFFER_DISCOUNT",      "action_detail": "Offer a 10% platform fee discount to critical risk clients on their next project"},
             ],
         },
         "ProductNeglectAgent": {

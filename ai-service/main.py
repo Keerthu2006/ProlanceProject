@@ -214,3 +214,45 @@ def chat(req: ChatRequest):
                  f"*(To restore full AI, please provide a valid GROQ_API_KEY or GEMINI_API_KEY in the .env file)*")
 
     return ChatResponse(response=reply)
+import joblib
+from pydantic import BaseModel
+from typing import List
+
+try:
+    customer_rf = joblib.load('agents/customer_neglect_rf.pkl')
+except Exception as e:
+    customer_rf = None
+
+class CustomerFeatureRow(BaseModel):
+    id: str
+    days_inactive: int
+    projects_30d: int
+    total_projects: int
+    is_freelancer: int
+
+class CustomerBatchRequest(BaseModel):
+    customers: List[CustomerFeatureRow]
+
+@app.post("/predict-customer-neglect-batch")
+def predict_customer_neglect_batch(req: CustomerBatchRequest):
+    if not customer_rf:
+        return {"error": "Model not loaded"}
+    
+    results = []
+    for c in req.customers:
+        features = [[c.days_inactive, c.projects_30d, c.total_projects, c.is_freelancer]]
+        churn_prob = customer_rf.predict_proba(features)[0][1]
+        
+        if churn_prob > 0.80: risk = "CRITICAL"; score = 85
+        elif churn_prob > 0.60: risk = "HIGH"; score = 65
+        elif churn_prob > 0.40: risk = "MEDIUM"; score = 45
+        elif churn_prob > 0.20: risk = "LOW"; score = 25
+        else: risk = "HEALTHY"; score = 5
+            
+        results.append({
+            "id": c.id,
+            "churn_prob": churn_prob,
+            "risk": risk,
+            "score": score
+        })
+    return {"results": results}

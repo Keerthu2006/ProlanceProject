@@ -121,48 +121,79 @@ public class EventCollectorService {
      */
     @Scheduled(initialDelay = 20000, fixedDelay = 360000)
     public void simulateSixHourly() throws Exception {
-        log.info("--- Running 6-Hour Simulation (Real Neglect Scan) ---");
+        log.info("--- Running 6-Hour Simulation (ML Neglect Scan) ---");
 
         Instant now = Instant.now();
         Instant thirtyDaysAgo  = now.minus(30, ChronoUnit.DAYS);
-        Instant fourteenDaysAgo = now.minus(14, ChronoUnit.DAYS);
 
-        // ── Customer Neglect: scan every real client ──────────────────
-        List<com.trigrowth.model.User> clients =
-                userRepository.findAllByRole(com.trigrowth.model.Role.ROLE_CLIENT);
+        // Fetch BOTH clients and freelancers for ML scoring
+        List<com.trigrowth.model.User> allUsers = new java.util.ArrayList<>();
+        allUsers.addAll(userRepository.findAllByRole(com.trigrowth.model.Role.ROLE_CLIENT));
+        allUsers.addAll(userRepository.findAllByRole(com.trigrowth.model.Role.ROLE_FREELANCER));
 
-        // Build at-risk client list
-        List<Map<String, Object>> atRiskClients = new java.util.ArrayList<>();
-        int criticalCount = 0, highCount = 0;
+        List<Map<String, Object>> featuresList = new java.util.ArrayList<>();
+        List<Map<String, Object>> baseResults = new java.util.ArrayList<>();
 
-        for (com.trigrowth.model.User client : clients) {
-            java.time.Instant lastActivity = client.getLastLoginAt() != null
-                    ? client.getLastLoginAt()
-                    : client.getCreatedAt();
-            long daysInactive = lastActivity != null
-                    ? ChronoUnit.DAYS.between(lastActivity, now)
-                    : 999L;
-
-            long projects30d = projectRepository.countByClient_IdAndCreatedAtAfter(
-                    client.getId(), thirtyDaysAgo);
-
-            // Only include clients who show neglect signals
-            String risk = null;
-            if      (daysInactive > 60)                          { risk = "CRITICAL"; criticalCount++; }
-            else if (daysInactive > 30)                          { risk = "HIGH";     highCount++; }
-            else if (daysInactive > 14 && projects30d == 0)      { risk = "MEDIUM"; }
-            else if (daysInactive > 7  && projects30d == 0)      { risk = "LOW"; }
-
-            if (risk != null) {
-                Map<String, Object> clientInfo = new HashMap<>();
-                clientInfo.put("client_id",    client.getId().toString());
-                clientInfo.put("client_name",  client.getFullName());
-                clientInfo.put("email",        client.getEmail());
-                clientInfo.put("days_inactive", daysInactive);
-                clientInfo.put("projects_30d", projects30d);
-                clientInfo.put("risk",         risk);
-                atRiskClients.add(clientInfo);
+        for (com.trigrowth.model.User user : allUsers) {
+            Instant lastActivity = user.getLastLoginAt() != null ? user.getLastLoginAt() : user.getCreatedAt();
+            long daysInactive = lastActivity != null ? ChronoUnit.DAYS.between(lastActivity, now) : 999L;
+            
+            long projects30d;
+            long totalProjects;
+            if (user.getRole() == com.trigrowth.model.Role.ROLE_CLIENT) {
+                projects30d = projectRepository.countByClient_IdAndCreatedAtAfter(user.getId(), thirtyDaysAgo);
+                totalProjects = projectRepository.countByClient_Id(user.getId());
+            } else {
+                projects30d = applicationRepository.countByFreelancerIdAndAppliedAtAfter(user.getId(), thirtyDaysAgo);
+                totalProjects = applicationRepository.countByFreelancerId(user.getId());
             }
+
+            Map<String, Object> feature = new java.util.HashMap<>();
+            feature.put("id", user.getId().toString());
+            feature.put("days_inactive", daysInactive);
+            feature.put("projects_30d", projects30d);
+            feature.put("total_projects", totalProjects);
+            feature.put("is_freelancer", user.getRole() == com.trigrowth.model.Role.ROLE_FREELANCER ? 1 : 0);
+            featuresList.add(feature);
+
+            Map<String, Object> base = new java.util.HashMap<>();
+            base.put("id", user.getId().toString());
+            base.put("client_name", user.getFullName());
+            base.put("days_inactive", daysInactive);
+            base.put("projects_30d", projects30d);
+            baseResults.add(base);
+        }
+
+        int criticalCount = 0, highCount = 0;
+        List<Map<String, Object>> atRiskClients = new java.util.ArrayList<>();
+
+        try {
+            org.springframework.web.client.RestTemplate restTemplate = new org.springframework.web.client.RestTemplate();
+            Map<String, Object> reqBody = Map.of("customers", featuresList);
+            Map<String, Object> aiResponse = restTemplate.postForObject(
+                "http://localhost:8001/predict-customer-neglect-batch", reqBody, Map.class);
+
+            if (aiResponse != null && aiResponse.containsKey("results")) {
+                List<Map<String, Object>> mlResults = (List<Map<String, Object>>) aiResponse.get("results");
+                for (Map<String, Object> mlRes : mlResults) {
+                    String id = (String) mlRes.get("id");
+                    String risk = (String) mlRes.get("risk");
+                    
+                    if ("CRITICAL".equals(risk) || "HIGH".equals(risk) || "MEDIUM".equals(risk)) {
+                        for (Map<String, Object> base : baseResults) {
+                            if (base.get("id").equals(id)) {
+                                base.put("risk", risk);
+                                atRiskClients.add(base);
+                                if ("CRITICAL".equals(risk)) criticalCount++;
+                                if ("HIGH".equals(risk)) highCount++;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.error("ML Neglect Batch API failed in scheduled task: {}", e.getMessage());
         }
 
         Map<String, Object> customerPayload = new HashMap<>();

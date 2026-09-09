@@ -42,6 +42,8 @@ public interface ProjectRepository extends JpaRepository<Project, Long> {
             @Param("recentCutoff") Instant recentCutoff);
 
     long countByClient_IdAndCreatedAtAfter(java.util.UUID clientId, Instant since);
+    
+    long countByClient_Id(java.util.UUID clientId);
 
     long countByClient_IdAndStatus(java.util.UUID clientId, Project.Status status);
 }

@@ -18,5 +18,9 @@ public interface ApplicationRepository extends JpaRepository<Application, Long> 
 
     long countByProjectId(Long projectId);
 
+    long countByFreelancerId(UUID freelancerId);
+
+    long countByFreelancerIdAndAppliedAtAfter(UUID freelancerId, java.time.Instant appliedAt);
+
     boolean existsByProjectIdAndFreelancerId(Long projectId, UUID freelancerId);
 }

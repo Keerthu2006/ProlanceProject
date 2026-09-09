@@ -259,31 +259,31 @@ export default function NeglectDashboard() {
               <Table>
                 <TableHead sx={{ bgcolor:"rgba(13,10,7,0.9)" }}>
                   <TableRow>
-                    <TableCell sx={{ color:C.primary }}>Client Name</TableCell>
-                    <TableCell sx={{ color:C.primary }}>Email</TableCell>
-                    <TableCell sx={{ color:C.primary }}>Inactive (Days)</TableCell>
-                    <TableCell sx={{ color:C.primary }}>Projects (30d)</TableCell>
-                    <TableCell sx={{ color:C.primary }}>Completed</TableCell>
-                    <TableCell sx={{ color:C.primary }}>Risk Level</TableCell>
-                    <TableCell sx={{ color:C.primary }}>Actions</TableCell>
+                    <TableCell sx={{ color:C.primary, fontWeight:"bold" }}>User Name</TableCell>
+                    <TableCell sx={{ color:C.primary, fontWeight:"bold" }}>Role</TableCell>
+                    <TableCell sx={{ color:C.primary, fontWeight:"bold" }}>Contact</TableCell>
+                    <TableCell sx={{ color:C.primary, fontWeight:"bold" }}>Last Active</TableCell>
+                    <TableCell sx={{ color:C.primary, fontWeight:"bold" }}>Projects (30d)</TableCell>
+                    <TableCell sx={{ color:C.primary, fontWeight:"bold" }}>Churn Risk</TableCell>
+                    <TableCell sx={{ color:C.primary, fontWeight:"bold" }}>Action</TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
                   {customers.length === 0 ? (
                     <TableRow>
                       <TableCell colSpan={7} sx={{ color:C.primary, textAlign:"center", py:4 }}>
-                        No clients found. Register clients to see neglect data.
+                        No users found.
                       </TableCell>
                     </TableRow>
                   ) : customers.map(c => (
                     <TableRow key={c.id} sx={{ "&:hover":{ bgcolor:"rgba(153,126,103,0.05)" } }}>
                       <TableCell sx={{ color:C.cream, fontWeight:"bold" }}>{c.name}</TableCell>
+                      <TableCell sx={{ color:C.primary, fontSize:"0.8rem" }}>{c.role || "Client"}</TableCell>
                       <TableCell sx={{ color:C.primary, fontSize:"0.8rem" }}>{c.email}</TableCell>
                       <TableCell sx={{ color: c.lastActive > 30 ? "#f87171" : c.lastActive > 14 ? "#fbbf24" : "#34d399", fontWeight:"bold" }}>
                         {c.lastActive === 0 ? "Today" : `${c.lastActive}d`}
                       </TableCell>
                       <TableCell sx={{ color:C.primary }}>{c.projects30d}</TableCell>
-                      <TableCell sx={{ color:C.primary }}>{c.completedProjects}</TableCell>
                       <TableCell>
                         <Chip
                           label={c.risk}

@@ -103,31 +103,94 @@ public class OwnerController {
     public ResponseEntity<List<Map<String, Object>>> getNeglectCustomers() {
         Instant now = Instant.now();
         Instant thirtyDaysAgo = now.minus(30, ChronoUnit.DAYS);
+        
+        // Fetch BOTH clients and freelancers for overall Customer Neglect
         List<User> clients = userRepository.findAllByRole(Role.ROLE_CLIENT);
-        List<Map<String, Object>> result = clients.stream().map(client -> {
-            Instant lastActivity = client.getLastLoginAt() != null ? client.getLastLoginAt() : client.getCreatedAt();
+        List<User> freelancers = userRepository.findAllByRole(Role.ROLE_FREELANCER);
+        List<User> allUsers = new ArrayList<>();
+        allUsers.addAll(clients);
+        allUsers.addAll(freelancers);
+        
+        List<Map<String, Object>> featuresList = new ArrayList<>();
+        List<Map<String, Object>> baseResults = new ArrayList<>();
+
+        for (User user : allUsers) {
+            Instant lastActivity = user.getLastLoginAt() != null ? user.getLastLoginAt() : user.getCreatedAt();
             long daysInactive = lastActivity != null ? ChronoUnit.DAYS.between(lastActivity, now) : 999L;
-            long projects30d = projectRepository.countByClient_IdAndCreatedAtAfter(client.getId(), thirtyDaysAgo);
-            long completedProjects = projectRepository.countByClient_IdAndStatus(client.getId(), Project.Status.COMPLETED);
-            String risk; int score;
-            if (daysInactive > 60)                          { risk = "CRITICAL"; score = 85; }
-            else if (daysInactive > 30)                     { risk = "HIGH";     score = 65; }
-            else if (daysInactive > 14 && projects30d == 0) { risk = "MEDIUM";   score = 45; }
-            else if (daysInactive > 7  && projects30d == 0) { risk = "LOW";      score = 25; }
-            else                                            { risk = "HEALTHY";  score = 5;  }
+            
+            long projects30d;
+            long totalProjects;
+            long completedProjects;
+            
+            if (user.getRole() == Role.ROLE_CLIENT) {
+                projects30d = projectRepository.countByClient_IdAndCreatedAtAfter(user.getId(), thirtyDaysAgo);
+                totalProjects = projectRepository.countByClient_Id(user.getId());
+                completedProjects = projectRepository.countByClient_IdAndStatus(user.getId(), Project.Status.COMPLETED);
+            } else {
+                projects30d = applicationRepository.countByFreelancerIdAndAppliedAtAfter(user.getId(), thirtyDaysAgo);
+                totalProjects = applicationRepository.countByFreelancerId(user.getId());
+                completedProjects = applicationRepository.findByFreelancerId(user.getId()).stream()
+                    .filter(a -> a.getProject().getStatus() == Project.Status.COMPLETED && a.getStatus() == Application.Status.ACCEPTED)
+                    .count();
+            }
+            
+            // Prepare features for ML Model
+            Map<String, Object> feature = new HashMap<>();
+            feature.put("id", user.getId().toString());
+            feature.put("days_inactive", daysInactive);
+            feature.put("projects_30d", projects30d);
+            feature.put("total_projects", totalProjects);
+            feature.put("is_freelancer", user.getRole() == Role.ROLE_FREELANCER ? 1 : 0);
+            featuresList.add(feature);
+
             Map<String, Object> e = new LinkedHashMap<>();
-            e.put("id",                client.getId().toString());
-            e.put("name",              client.getFullName());
-            e.put("email",             client.getEmail());
-            e.put("lastActive",        daysInactive);
-            e.put("lastLoginAt",       lastActivity != null ? lastActivity.toString() : null);
-            e.put("projects30d",       projects30d);
+            e.put("id", user.getId().toString());
+            e.put("name", user.getFullName());
+            e.put("email", user.getEmail());
+            e.put("role", user.getRole() == Role.ROLE_FREELANCER ? "Freelancer" : "Client");
+            e.put("lastActive", daysInactive);
+            e.put("lastLoginAt", lastActivity != null ? lastActivity.toString() : null);
+            e.put("projects30d", projects30d);
             e.put("completedProjects", completedProjects);
-            e.put("risk",              risk);
-            e.put("score",             score);
-            return e;
-        }).sorted(Comparator.comparingInt(m -> -((int) m.get("score")))).collect(Collectors.toList());
-        return ResponseEntity.ok(result);
+            baseResults.add(e);
+        }
+
+        // Call the ML Python Service
+        try {
+            org.springframework.web.client.RestTemplate restTemplate = new org.springframework.web.client.RestTemplate();
+            Map<String, Object> reqBody = Map.of("customers", featuresList);
+            Map<String, Object> aiResponse = restTemplate.postForObject(
+                "http://localhost:8001/predict-customer-neglect-batch", 
+                reqBody, 
+                Map.class
+            );
+
+            if (aiResponse != null && aiResponse.containsKey("results")) {
+                List<Map<String, Object>> mlResults = (List<Map<String, Object>>) aiResponse.get("results");
+                for (Map<String, Object> mlRes : mlResults) {
+                    String id = (String) mlRes.get("id");
+                    for (Map<String, Object> base : baseResults) {
+                        if (base.get("id").equals(id)) {
+                            base.put("risk", mlRes.get("risk"));
+                            base.put("score", mlRes.get("score"));
+                            base.put("churnProb", mlRes.get("churn_prob"));
+                            break;
+                        }
+                    }
+                }
+            }
+        } catch (Exception ex) {
+            // Fallback to basic rules if AI service is down
+            for (Map<String, Object> base : baseResults) {
+                if (!base.containsKey("risk")) {
+                    long daysInactive = (long) base.get("lastActive");
+                    base.put("risk", daysInactive > 60 ? "CRITICAL" : (daysInactive > 30 ? "HIGH" : "HEALTHY"));
+                    base.put("score", daysInactive > 60 ? 85 : 5);
+                }
+            }
+        }
+        
+        return ResponseEntity.ok(baseResults);
     }
 
     @GetMapping("/neglect/features")

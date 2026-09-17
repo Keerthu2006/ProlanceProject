@@ -81,6 +81,16 @@ export default function NeglectDashboard() {
           fetchAll();
           setToast({ open:true, msg:"?? AI generated a new recommendation!", sev:"info" });
         });
+
+        // Listen for live automation executions!
+        client.subscribe('/topic/automation-log', (message) => {
+          const action = JSON.parse(message.body);
+          if (action.success) {
+            setToast({ open: true, msg: `🤖 Auto-Executed: ${action.actionDetail}`, sev: 'success' });
+          } else {
+            setToast({ open: true, msg: `❌ Automation Failed: ${action.actionDetail}`, sev: 'error' });
+          }
+        });
       },
     });
     client.activate();
@@ -933,11 +943,20 @@ export default function NeglectDashboard() {
                       <TableCell sx={{ color:C.primary }}>{d.count}</TableCell>
                       <TableCell sx={{ color:"#34d399", fontWeight:"bold" }}>{d.predicted6m}%</TableCell>
                       <TableCell>
-                        <Button size="small"
-                          onClick={() => setToast({ open:true, msg:`Notified top freelancers to upgrade for ${d.domain}`, sev:"success" })}
-                          sx={{ color:C.primary, fontSize:"0.75rem" }}>
-                          Notify
-                        </Button>
+                          <Button size="small"
+                            onClick={() => {
+                              api.post('/owner/automations/manual-trigger', {
+                                actionType: 'NOTIFY_FREELANCERS',
+                                detail: `Notified top freelancers to upgrade for ${d.domain}`
+                              }).then(() => {
+                                setToast({ open:true, msg:`Notified top freelancers to upgrade for ${d.domain}`, sev:"success" });
+                              }).catch(err => {
+                                setToast({ open:true, msg:"Failed to notify.", sev:"error" });
+                              });
+                            }}
+                            sx={{ color:C.primary, fontSize:"0.75rem" }}>
+                            Notify
+                          </Button>
                       </TableCell>
                     </TableRow>
                   ))}

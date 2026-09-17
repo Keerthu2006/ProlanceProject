@@ -24,9 +24,9 @@ spring:
   websocket:
     allowed-origins: "http://localhost:3000,http://localhost:5173"
 
-  # ── H2 In-Memory Database (no install needed) ─────────────────
+  # 🗄️ H2 File Database (Persistence without Postgres install) ─────────────────
   datasource:
-    url: jdbc:h2:mem:prolancedb;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DEFAULT_NULL_ORDERING=HIGH;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE;NON_KEYWORDS=USER,VALUE,INTERVAL,DATETIME,YEAR,MONTH
+    url: jdbc:h2:file:./data/prolancedb;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DEFAULT_NULL_ORDERING=HIGH;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE;NON_KEYWORDS=USER,VALUE,INTERVAL,DATETIME,YEAR,MONTH
     driver-class-name: org.h2.Driver
     username: sa
     password: ""
@@ -36,10 +36,10 @@ spring:
       enabled: true
       path: /h2-console
 
-  # ── JPA / Hibernate ───────────────────────────────────────────
+  # 🛠️ JPA / Hibernate ────────────────────────────────────────────────────────
   jpa:
     hibernate:
-      ddl-auto: create-drop
+      ddl-auto: update
     show-sql: false
     open-in-view: false
     properties:

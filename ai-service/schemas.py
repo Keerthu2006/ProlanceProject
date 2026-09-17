@@ -57,3 +57,24 @@ class AnalyzeEventResponse(BaseModel):
     agent_results: list[AgentResult]
     decision: DecisionOutput
     recommendation: Optional[RecommendationResponse] = None
+
+class FreelancerProfile(BaseModel):
+    id: int
+    headline: str
+    bio: str
+    skills: list[str]
+
+class MatchmakingRequest(BaseModel):
+    project_title: str
+    project_description: str
+    project_skills: list[str]
+    freelancers: list[FreelancerProfile]
+
+class MatchScore(BaseModel):
+    freelancer_id: int
+    score: float
+    reason: str
+
+class MatchmakingResponse(BaseModel):
+    matches: list[MatchScore]
+

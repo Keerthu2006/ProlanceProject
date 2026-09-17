@@ -35,6 +35,7 @@ public class OwnerController {
     private final TeamRepository              teamRepository;
     private final MilestoneRepository         milestoneRepository;
     private final PaymentRepository           paymentRepository;
+    private final org.springframework.messaging.simp.SimpMessagingTemplate messagingTemplate;
 
     @GetMapping("/summary")
     public ResponseEntity<Map<String, Object>> getSummary() {
@@ -67,6 +68,21 @@ public class OwnerController {
     @PostMapping("/recommendations/{id}/approve")
     public ResponseEntity<Recommendation> approve(@PathVariable Long id) {
         return ResponseEntity.ok(recommendationService.approveRecommendation(id));
+    }
+
+    @PostMapping("/automations/manual-trigger")
+    public ResponseEntity<Map<String, Object>> manualTrigger(@RequestBody Map<String, String> payload) {
+        String actionType = payload.get("actionType");
+        String detail = payload.get("detail");
+        
+        messagingTemplate.convertAndSend("/topic/automation-log", Map.of(
+                "actionType", actionType,
+                "actionDetail", detail,
+                "success", true,
+                "timestamp", java.time.Instant.now().toString()
+        ));
+        
+        return ResponseEntity.ok(Map.of("success", true, "message", "Action triggered: " + actionType));
     }
 
     @PostMapping("/recommendations/{id}/reject")

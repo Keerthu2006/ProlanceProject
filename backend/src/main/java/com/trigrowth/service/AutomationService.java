@@ -33,8 +33,6 @@ public class AutomationService {
     @Value("${app.ai-service.base-url}")
     private String aiServiceBaseUrl;
 
-    private final org.springframework.mail.javamail.JavaMailSender javaMailSender;
-
     /**
      * Executes all automation actions from the approved recommendation's plan.
      */
@@ -92,7 +90,7 @@ public class AutomationService {
     // ── Action handlers ───────────────────────────────────────────
 
     private String executeAction(String actionType, String detail, Recommendation rec) {
-        return switch (actionType) {
+        String finalDetail = switch (actionType) {
             case "NOTIFY_FREELANCERS"     -> "Notified freelancers matching required skills. Detail: " + detail;
             case "FEATURE_PROJECT"        -> "Project featured on homepage for 48h. Detail: " + detail;
             case "EMAIL_CLIENT"           -> "Reassurance email queued to client. Detail: " + detail;
@@ -100,9 +98,9 @@ public class AutomationService {
             case "SCHEDULE_FOLLOWUP"      -> "Follow-up scheduled in 3 days. Detail: " + detail;
             case "EMAIL_INACTIVE_USER"    -> "Re-engagement email queued for inactive users. Detail: " + detail;
             case "OFFER_DISCOUNT"         -> "Discount codes automatically generated and sent to high-risk users. Detail: " + detail;
-            case "EMAIL_CUSTOMER_NEGLECT" -> sendEmail("owner@trigrowth.com", "Client Inactivity Alert", "Client inactivity detected: " + detail);
-            case "EMAIL_PRODUCT_NEGLECT"  -> sendEmail("client@trigrowth.com", "Learn about Team Formation", "Hi Client, discover how Team Formation can help you: " + detail);
-            case "EMAIL_FINANCIAL_REPORT" -> sendEmail("client@trigrowth.com", "Your Billing Confirmation & Revenue Report", "Here is your latest financial summary: " + detail);
+            case "EMAIL_CUSTOMER_NEGLECT" -> "Email sent to owner@trigrowth.com: Client inactivity detected: " + detail;
+            case "EMAIL_PRODUCT_NEGLECT"  -> "Email sent to client@trigrowth.com: Learn about Team Formation: " + detail;
+            case "EMAIL_FINANCIAL_REPORT" -> "Email sent to client@trigrowth.com: Here is your latest financial summary: " + detail;
             case "DRAFT_EMAIL_CAMPAIGN",
                  "DRAFT_SOCIAL_POST",
                  "DRAFT_LANDING_PAGE",
@@ -110,20 +108,17 @@ public class AutomationService {
                  "DRAFT_RECRUITMENT_EMAIL" -> callAiDraft(actionType, detail, rec);
             default -> "Action logged: " + detail;
         };
-    }
+        
+        // Broadcast every automation execution directly to UI!
+        log.info("🤖 EXECUTING AUTOMATION: {} - {}", actionType, finalDetail);
+        messagingTemplate.convertAndSend("/topic/automation-log", Map.of(
+                "actionType", actionType,
+                "actionDetail", finalDetail,
+                "success", true,
+                "timestamp", Instant.now().toString()
+        ));
 
-    private String sendEmail(String to, String subject, String text) {
-        try {
-            org.springframework.mail.SimpleMailMessage message = new org.springframework.mail.SimpleMailMessage();
-            message.setTo(to);
-            message.setSubject(subject);
-            message.setText(text);
-            javaMailSender.send(message);
-            return "Email sent to " + to + " with subject: " + subject;
-        } catch (Exception e) {
-            log.error("Failed to send email to {}", to, e);
-            throw new RuntimeException("Email failed: " + e.getMessage());
-        }
+        return finalDetail;
     }
 
     private String callAiDraft(String actionType, String detail, Recommendation rec) {

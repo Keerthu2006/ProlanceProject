@@ -18,6 +18,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
 
+@Component
 @RequiredArgsConstructor
 public class DatabaseSeeder implements CommandLineRunner {
 
@@ -32,7 +33,7 @@ public class DatabaseSeeder implements CommandLineRunner {
 
     @Override
     public void run(String... args) throws Exception {
-        if (userRepository.countByRole(Role.ROLE_FREELANCER) > 0) {
+        if (userRepository.countByRole(Role.ROLE_FREELANCER) > 10) {
             return; // Already seeded
         }
 

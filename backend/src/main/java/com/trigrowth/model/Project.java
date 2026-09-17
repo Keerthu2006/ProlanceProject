@@ -116,6 +116,10 @@ public class Project {
     @Column(columnDefinition = "TEXT")
     private String revisionNote;
 
+    // Team code repository URL (GitHub)
+    @Column(name = "github_repo_url")
+    private String githubRepoUrl;
+
     @CreatedDate
     @Column(updatable = false)
     private Instant createdAt;

@@ -53,6 +53,18 @@ public class Milestone {
 
     private Instant dueDate;
 
+    @Column(name = "assigned_freelancer_id")
+    private java.util.UUID assignedFreelancerId;
+
+    @Column(name = "assigned_freelancer_name")
+    private String assignedFreelancerName;
+
+    @Column(name = "github_pr_url")
+    private String githubPrUrl;
+
+    @Column(name = "github_branch")
+    private String githubBranch;
+
     @CreatedDate
     @Column(updatable = false)
     private Instant createdAt;

@@ -201,7 +201,7 @@ public class EventCollectorService {
         customerPayload.put("critical_count",   criticalCount);
         customerPayload.put("high_count",       highCount);
         customerPayload.put("days_inactive",    criticalCount > 0 ? 61 : (highCount > 0 ? 31 : 15));
-        customerPayload.put("total_clients",    clients.size());
+        customerPayload.put("total_clients",    allUsers.size());
 
 
         // --- FREELANCER GHOSTING ---
@@ -226,7 +226,7 @@ public class EventCollectorService {
         log.info("Customer Neglect scan: {} at-risk clients ({} CRITICAL, {} HIGH)",
                 atRiskClients.size(), criticalCount, highCount);
 
-        // ── Product Neglect: feature adoption ────────────────────────
+        // ── Product Neglect: 3-Pillar analysis (Feature adoption, Incomplete profiles, Transparency) ──
         Map<String, Object> productPayload = new HashMap<>();
         long teamCount          = teamRepository.count();
         long totalFreelancers   = userRepository.countByRole(com.trigrowth.model.Role.ROLE_FREELANCER);
@@ -237,12 +237,37 @@ public class EventCollectorService {
         List<String> reviewComments = recentReviews.stream()
                 .map(Review::getComment).filter(c -> c != null && !c.isBlank())
                 .collect(Collectors.toList());
-        productPayload.put("feature_key",           "team_formation");
-        productPayload.put("feature_usage_count",   teamCount);
-        productPayload.put("total_freelancers",      totalFreelancers);
-        productPayload.put("adoption_rate",          teamAdoption);
-        productPayload.put("bid_adoption_rate",      bidAdoption);
-        productPayload.put("recent_reviews",         reviewComments);
+
+        // Incomplete profile percentage calculation
+        List<FreelancerProfile> allProfiles = profileRepository.findAll();
+        long incompleteCount = allProfiles.stream().filter(p -> {
+            boolean hasHeadline = p.getHeadline() != null && !p.getHeadline().trim().isEmpty();
+            boolean hasBio = p.getBio() != null && p.getBio().trim().length() >= 100;
+            boolean hasRate = p.getHourlyRate() != null && p.getHourlyRate().doubleValue() > 0;
+            boolean hasSkills = p.getSkills() != null && p.getSkills().size() >= 2;
+            return !(hasHeadline && hasBio && hasRate && hasSkills);
+        }).count();
+        double incompleteProfilePct = allProfiles.isEmpty() ? 30.0 : (incompleteCount * 100.0) / allProfiles.size();
+
+        // Transparency deficit
+        long missingProofCount = allProfiles.stream().filter(p ->
+            (p.getGithubUrl() == null || p.getGithubUrl().trim().isEmpty()) &&
+            (p.getLinkedinUrl() == null || p.getLinkedinUrl().trim().isEmpty()) &&
+            (p.getPortfolioUrl() == null || p.getPortfolioUrl().trim().isEmpty())
+        ).count();
+        double transparencyDeficitPct = allProfiles.isEmpty() ? 35.0 : (missingProofCount * 100.0) / allProfiles.size();
+
+        double avgFeatureAdoptionPct = ((teamAdoption + bidAdoption + 0.5) / 3.0) * 100.0;
+
+        productPayload.put("feature_key",              "team_formation");
+        productPayload.put("feature_usage_count",      teamCount);
+        productPayload.put("total_freelancers",         totalFreelancers);
+        productPayload.put("adoption_rate",             teamAdoption);
+        productPayload.put("bid_adoption_rate",         bidAdoption);
+        productPayload.put("avg_feature_adoption_pct",  avgFeatureAdoptionPct);
+        productPayload.put("incomplete_profile_pct",    incompleteProfilePct);
+        productPayload.put("transparency_deficit_pct",  transparencyDeficitPct);
+        productPayload.put("recent_reviews",            reviewComments);
         emit("FEATURE_USAGE_REPORT", "SYSTEM", 0L, productPayload);
     }
 

@@ -25,6 +25,7 @@ public class FeatureUsageLog {
     @Column(nullable = false)
     private String featureKey;
 
+    @Builder.Default
     @Column(nullable = false)
     private Instant usedAt = Instant.now();
 }

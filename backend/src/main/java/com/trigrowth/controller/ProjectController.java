@@ -130,6 +130,14 @@ public class ProjectController {
         return ResponseEntity.ok(projectService.cancelProject(id));
     }
 
+    @PutMapping("/{id}/github-repo")
+    @Operation(summary = "Set or update GitHub repository URL for project")
+    public ResponseEntity<Project> updateGithubRepo(
+            @PathVariable Long id,
+            @RequestBody java.util.Map<String, String> body) {
+        return ResponseEntity.ok(projectService.updateGithubRepoUrl(id, body.get("githubRepoUrl")));
+    }
+
     // ── Applications ──────────────────────────────────────────────
 
     @PostMapping("/{id}/apply")
@@ -189,7 +197,7 @@ public class ProjectController {
     // ── Reviews ───────────────────────────────────────────────────
 
     @PostMapping("/{id}/reviews")
-    @Operation(summary = "Submit a review (CLIENT)")
+    @Operation(summary = "Submit a review (CLIENT or FREELANCER)")
     public ResponseEntity<Review> submitReview(
             @PathVariable Long id,
             @AuthenticationPrincipal UserDetails ud,
@@ -197,6 +205,25 @@ public class ProjectController {
         return ResponseEntity.status(HttpStatus.CREATED).body(
                 reviewService.submitReview(id, resolveUser(ud).getId(),
                         req.revieweeId(), req.rating(), req.comment()));
+    }
+
+    @PostMapping("/{id}/reviews/batch")
+    @Operation(summary = "Submit batch reviews for team members")
+    public ResponseEntity<List<Review>> submitBatchReviews(
+            @PathVariable Long id,
+            @AuthenticationPrincipal UserDetails ud,
+            @RequestBody List<ReviewRequest> reqs) {
+        java.util.UUID reviewerId = resolveUser(ud).getId();
+        List<Review> saved = reqs.stream()
+                .map(r -> reviewService.submitReview(id, reviewerId, r.revieweeId(), r.rating(), r.comment()))
+                .toList();
+        return ResponseEntity.status(HttpStatus.CREATED).body(saved);
+    }
+
+    @GetMapping("/{id}/reviews")
+    @Operation(summary = "Get all reviews for a project (two-way reviews)")
+    public ResponseEntity<List<Review>> getProjectReviews(@PathVariable Long id) {
+        return ResponseEntity.ok(reviewService.getProjectReviews(id));
     }
 
     @GetMapping("/reviews/given")

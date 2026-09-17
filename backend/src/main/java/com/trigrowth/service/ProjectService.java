@@ -148,7 +148,15 @@ public class ProjectService {
         m.put("clientName", p.getClientName());
         m.put("submissionNote", p.getSubmissionNote());
         m.put("revisionNote", p.getRevisionNote());
+        m.put("githubRepoUrl", p.getGithubRepoUrl());
         return m;
+    }
+
+    @Transactional
+    public Project updateGithubRepoUrl(Long projectId, String githubRepoUrl) {
+        Project p = getProject(projectId);
+        p.setGithubRepoUrl(githubRepoUrl);
+        return projectRepository.save(p);
     }
 
     /**

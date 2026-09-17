@@ -29,7 +29,7 @@ public class ApplicationService {
     @Transactional
     public Application apply(Long projectId, UUID freelancerId, String coverLetter, BigDecimal proposedAmount, Long teamId) {
         if (applicationRepository.existsByProjectIdAndFreelancerId(projectId, freelancerId)) {
-            throw new RuntimeException("Already applied to this project");
+            throw new IllegalArgumentException("Already applied to this project");
         }
 
         Project project = projectRepository.findById(projectId)

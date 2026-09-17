@@ -256,3 +256,134 @@ def predict_customer_neglect_batch(req: CustomerBatchRequest):
             "score": score
         })
     return {"results": results}
+
+
+class FinancialNeglectRequest(BaseModel):
+    budget: float = 5000.0
+    agreed_amount: float = 4750.0
+    payment_delay: float = 0.0
+    overdue_milestones: int = 0
+    client_rating: float = 4.5
+    freelancer_rating: float = 4.8
+    revenue_drop: float = 0.0
+
+@app.post("/predict-financial-neglect")
+def predict_financial_neglect(req: FinancialNeglectRequest):
+    budget_utilization = req.agreed_amount / req.budget if req.budget > 0 else 1.0
+    rf_model = financial_agent.rf_model
+    if rf_model is not None:
+        import pandas as pd
+        features_df = pd.DataFrame([{
+            'budget': req.budget,
+            'agreed_amount': req.agreed_amount,
+            'budget_utilization': budget_utilization,
+            'payment_delay': req.payment_delay,
+            'overdue_milestones': req.overdue_milestones,
+            'client_rating': req.client_rating,
+            'freelancer_rating': req.freelancer_rating,
+        }])
+        pred = int(rf_model.predict(features_df)[0])
+        import numpy as np
+        proba = rf_model.predict_proba(features_df)[0]
+        confidence = float(np.max(proba)) * 100.0
+    else:
+        # Rule-based fallback
+        if req.payment_delay > 14 or req.overdue_milestones > 1 or req.revenue_drop > 20:
+            pred = 2
+        elif req.payment_delay > 5 or req.overdue_milestones == 1 or req.revenue_drop > 10:
+            pred = 1
+        else:
+            pred = 0
+        confidence = 65.0
+
+    severity_map = {2: ("CRITICAL", 85.0), 1: ("MEDIUM", 50.0), 0: ("HEALTHY", 15.0)}
+    risk, score = severity_map.get(pred, ("HEALTHY", 15.0))
+    if req.revenue_drop > 25 and score < 75:
+        score = 80.0
+        risk = "HIGH"
+
+    feature_dict = {
+        "budget": req.budget, "agreed_amount": req.agreed_amount,
+        "payment_delay": req.payment_delay, "overdue_milestones": req.overdue_milestones,
+        "client_rating": req.client_rating, "drop_percentage": req.revenue_drop,
+    }
+    summary = financial_agent._groq_summary(risk, feature_dict)
+
+    return {
+        "rf_prediction": pred,
+        "rf_confidence": round(confidence, 1),
+        "risk": risk,
+        "score": score,
+        "summary": summary,
+        "budget": req.budget,
+        "payment_delay": req.payment_delay,
+        "overdue_milestones": req.overdue_milestones,
+        "revenue_drop": req.revenue_drop
+    }
+
+
+class ProductNeglectRequest(BaseModel):
+    feature_key: str = "team_formation"
+    avg_feature_adoption_pct: float = 45.0
+    incomplete_profile_pct: float = 30.0
+    transparency_deficit_pct: float = 35.0
+    complaints: int = 0
+    reviews: List[str] = []
+
+@app.post("/predict-product-neglect")
+def predict_product_neglect(req: ProductNeglectRequest):
+    feature_deficit_pct = max(0.0, 100.0 - req.avg_feature_adoption_pct)
+    # 3-pillar calculation:
+    score = (
+        (0.40 * feature_deficit_pct) +
+        (0.35 * req.incomplete_profile_pct) +
+        (0.25 * req.transparency_deficit_pct)
+    )
+    if req.complaints > 0:
+        score += min(req.complaints * 3.0, 10.0)
+    score = max(0.0, min(100.0, round(score, 1)))
+
+    if score >= 65:
+        risk = "CRITICAL"
+    elif score >= 45:
+        risk = "HIGH"
+    elif score >= 25:
+        risk = "MEDIUM"
+    else:
+        risk = "HEALTHY"
+
+    summary = product_agent._generate_summary(
+        risk, req.feature_key, req.avg_feature_adoption_pct,
+        req.incomplete_profile_pct, req.transparency_deficit_pct,
+        req.complaints, req.reviews
+    )
+
+    return {
+        "score": score,
+        "risk": risk,
+        "summary": summary,
+        "feature_adoption_pct": round(req.avg_feature_adoption_pct, 1),
+        "feature_deficit_pct": round(feature_deficit_pct, 1),
+        "incomplete_profile_pct": round(req.incomplete_profile_pct, 1),
+        "transparency_deficit_pct": round(req.transparency_deficit_pct, 1)
+    }
+
+
+class OpportunityNeglectRequest(BaseModel):
+    platform_skill_supply: dict = {}
+
+@app.post("/predict-opportunity-neglect")
+def predict_opportunity_neglect(req: OpportunityNeglectRequest):
+    ctx = EventContext(
+        event_type="MARKET_TREND_REPORT",
+        entity_type="SYSTEM",
+        entity_id="0",
+        payload={"platform_skill_supply": req.platform_skill_supply}
+    )
+    result = opportunity_agent.analyze(ctx)
+    return {
+        "score": result.score,
+        "risk": result.severity,
+        "summary": result.summary,
+        "raw_data": result.raw_data
+    }

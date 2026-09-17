@@ -25,6 +25,8 @@ public class MilestoneService {
     private final ProjectRepository projectRepository;
     private final PaymentRepository paymentRepository;
     private final UserRepository userRepository;
+    private final com.trigrowth.repository.ApplicationRepository applicationRepository;
+    private final com.trigrowth.repository.TeamRepository teamRepository;
 
     @Transactional
     public Milestone createMilestone(Long projectId, String title, String description, BigDecimal amount, Instant dueDate, User currentUser) {
@@ -71,14 +73,33 @@ public class MilestoneService {
         return milestoneRepository.findByProjectIdOrderByIdAsc(projectId);
     }
 
+    public boolean isFreelancerAuthorizedForProject(Project project, User currentUser) {
+        if (currentUser == null || project == null) return false;
+        
+        // 1. Directly hired freelancer or leader
+        if (project.getHiredFreelancerId() != null && project.getHiredFreelancerId().equals(currentUser.getId())) {
+            return true;
+        }
+
+        // 2. Team-based project check: user is leader OR member of accepted team
+        return applicationRepository.findByProjectId(project.getId()).stream()
+                .filter(a -> a.getStatus() == com.trigrowth.model.Application.Status.ACCEPTED && a.getTeamId() != null)
+                .findFirst()
+                .map(a -> teamRepository.findById(a.getTeamId())
+                        .map(team -> (team.getLeader() != null && team.getLeader().getId().equals(currentUser.getId())) ||
+                                     (team.getMembers() != null && team.getMembers().stream().anyMatch(m -> m.getId().equals(currentUser.getId()))))
+                        .orElse(false))
+                .orElse(false);
+    }
+
     @Transactional
     public Milestone acceptExtraMilestone(Long milestoneId, User currentUser) {
         Milestone milestone = milestoneRepository.findById(milestoneId)
                 .orElseThrow(() -> new RuntimeException("Milestone not found"));
         Project project = milestone.getProject();
         
-        if (project.getHiredFreelancerId() == null || !project.getHiredFreelancerId().equals(currentUser.getId())) {
-            throw new RuntimeException("Only hired freelancer can accept extra milestones");
+        if (!isFreelancerAuthorizedForProject(project, currentUser)) {
+            throw new RuntimeException("Only assigned freelancer or team member can accept extra milestones");
         }
 
         if (milestone.getStatus() != Milestone.Status.PENDING_FREELANCER_APPROVAL) {
@@ -109,8 +130,8 @@ public class MilestoneService {
                 .orElseThrow(() -> new RuntimeException("Milestone not found"));
         Project project = milestone.getProject();
         
-        if (project.getHiredFreelancerId() == null || !project.getHiredFreelancerId().equals(currentUser.getId())) {
-            throw new RuntimeException("Only hired freelancer can reject extra milestones");
+        if (!isFreelancerAuthorizedForProject(project, currentUser)) {
+            throw new RuntimeException("Only assigned freelancer or team member can reject extra milestones");
         }
 
         if (milestone.getStatus() != Milestone.Status.PENDING_FREELANCER_APPROVAL) {
@@ -122,19 +143,39 @@ public class MilestoneService {
 
     @Transactional
     public Milestone updateStatus(Long milestoneId, Milestone.Status newStatus, String submissionNote, User currentUser) {
+        return updateStatus(milestoneId, newStatus, submissionNote, null, null, null, null, currentUser);
+    }
+
+    @Transactional
+    public Milestone updateStatus(Long milestoneId, Milestone.Status newStatus, String submissionNote,
+                                 String githubPrUrl, String githubBranch,
+                                 UUID assignedFreelancerId, String assignedFreelancerName,
+                                 User currentUser) {
         Milestone milestone = milestoneRepository.findById(milestoneId)
                 .orElseThrow(() -> new RuntimeException("Milestone not found"));
         
         Project project = milestone.getProject();
         
-        // Ensure user is hired freelancer
-        if (project.getHiredFreelancerId() == null || !project.getHiredFreelancerId().equals(currentUser.getId())) {
-            throw new RuntimeException("Only hired freelancer can update milestone status");
+        // Ensure user is hired freelancer OR member of the project team
+        if (!isFreelancerAuthorizedForProject(project, currentUser)) {
+            throw new RuntimeException("Only assigned freelancer or team member can update milestone status");
         }
 
-        milestone.setStatus(newStatus);
+        if (newStatus != null) {
+            milestone.setStatus(newStatus);
+        }
         if (submissionNote != null) {
             milestone.setSubmissionNote(submissionNote);
+        }
+        if (githubPrUrl != null && !githubPrUrl.isBlank()) {
+            milestone.setGithubPrUrl(githubPrUrl);
+        }
+        if (githubBranch != null && !githubBranch.isBlank()) {
+            milestone.setGithubBranch(githubBranch);
+        }
+        if (assignedFreelancerId != null) {
+            milestone.setAssignedFreelancerId(assignedFreelancerId);
+            milestone.setAssignedFreelancerName(assignedFreelancerName);
         }
         return milestoneRepository.save(milestone);
     }

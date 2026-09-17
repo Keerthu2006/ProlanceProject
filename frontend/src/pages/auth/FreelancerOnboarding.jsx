@@ -24,6 +24,8 @@ export default function FreelancerOnboarding() {
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
   const [skillInput, setSkillInput] = useState('');
+  const [photoPreview, setPhotoPreview] = useState(null);
+  const fileInputRef = useRef(null);
   
   const [formData, setFormData] = useState({
     // Step 1
@@ -50,6 +52,13 @@ export default function FreelancerOnboarding() {
     linkedinUrl: '',
     portfolioUrl: ''
   });
+
+  const handlePhotoUpload = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      setPhotoPreview(URL.createObjectURL(file));
+    }
+  };
 
   const handleNext = () => setStep(prev => prev + 1);
   const handleBack = () => setStep(prev => prev - 1);
@@ -263,10 +272,23 @@ export default function FreelancerOnboarding() {
 
             <Box display="flex" flexDirection="column" alignItems="center" mb={4}>
               <Box position="relative">
-                <Avatar sx={{ width: 100, height: 100, bgcolor: 'rgba(153, 126, 103, 0.2)', border: '2px dashed #997E67' }}>
-                  <User size={40} color="#997E67" />
+                <Avatar src={photoPreview} sx={{ width: 100, height: 100, bgcolor: 'rgba(153, 126, 103, 0.2)', border: '2px dashed #997E67' }}>
+                  {!photoPreview && <User size={40} color="#997E67" />}
                 </Avatar>
-                <Box position="absolute" bottom={0} right={0} bgcolor="#997E67" p={1} borderRadius="50%" sx={{ cursor: 'pointer' }}>
+                <input 
+                  type="file" 
+                  accept="image/*" 
+                  ref={fileInputRef} 
+                  onChange={handlePhotoUpload} 
+                  style={{ display: 'none' }} 
+                />
+                <Box 
+                  position="absolute" 
+                  bottom={0} right={0} 
+                  bgcolor="#997E67" p={1} borderRadius="50%" 
+                  sx={{ cursor: 'pointer' }}
+                  onClick={() => fileInputRef.current && fileInputRef.current.click()}
+                >
                   <Upload size={16} color="white" />
                 </Box>
               </Box>

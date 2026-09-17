@@ -15,6 +15,7 @@ import org.springframework.context.annotation.Configuration;
 @Configuration
 @Slf4j
 @RequiredArgsConstructor
+@org.springframework.core.annotation.Order(1)
 public class DemoDataSeeder {
 
     private final AuthService authService;

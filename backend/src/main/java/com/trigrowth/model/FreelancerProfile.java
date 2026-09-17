@@ -48,6 +48,12 @@ public class FreelancerProfile {
 
     private String availability;
 
+    private String githubUrl;
+
+    private String linkedinUrl;
+
+    private String portfolioUrl;
+
     @CreatedDate
     @Column(updatable = false)
     private Instant createdAt;

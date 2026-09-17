@@ -49,6 +49,15 @@ public class FreelancerProfileService {
             profile.setSkills(request.skills());
         }
         profile.setAvailability(request.availability());
+        if (request.githubUrl() != null) {
+            profile.setGithubUrl(request.githubUrl());
+        }
+        if (request.linkedinUrl() != null) {
+            profile.setLinkedinUrl(request.linkedinUrl());
+        }
+        if (request.portfolioUrl() != null) {
+            profile.setPortfolioUrl(request.portfolioUrl());
+        }
         return profileRepository.save(profile);
     }
 

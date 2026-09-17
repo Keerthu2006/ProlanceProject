@@ -7,4 +7,6 @@ import java.util.List;
 
 public interface MilestoneRepository extends JpaRepository<Milestone, Long> {
     List<Milestone> findByProjectIdOrderByIdAsc(Long projectId);
+    List<Milestone> findByDueDateBeforeAndStatusNot(java.time.Instant dueDate, Milestone.Status status);
+    long countByStatus(Milestone.Status status);
 }

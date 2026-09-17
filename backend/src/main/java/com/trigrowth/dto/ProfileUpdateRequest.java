@@ -8,5 +8,8 @@ public record ProfileUpdateRequest(
         String bio,
         BigDecimal hourlyRate,
         List<String> skills,
-        String availability
+        String availability,
+        String githubUrl,
+        String linkedinUrl,
+        String portfolioUrl
 ) {}

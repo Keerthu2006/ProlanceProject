@@ -39,4 +39,13 @@ public class GlobalExceptionHandler {
         errors.put("message", "Validation failed");
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(errors);
     }
+
+    /** Catches DB constraint violations (e.g. NULL column, unique key) */
+    @ExceptionHandler(org.springframework.dao.DataIntegrityViolationException.class)
+    public ResponseEntity<Map<String, String>> handleDataIntegrity(
+            org.springframework.dao.DataIntegrityViolationException ex) {
+        Map<String, String> response = new HashMap<>();
+        response.put("message", "Data integrity error: " + ex.getMostSpecificCause().getMessage());
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
+    }
 }

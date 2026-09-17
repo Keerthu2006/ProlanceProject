@@ -50,7 +50,8 @@ public class SecurityConfig {
             .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers(PUBLIC_ENDPOINTS).permitAll()
-                .requestMatchers(HttpMethod.GET, "/freelancers/**", "/projects/**").permitAll()
+                .requestMatchers(HttpMethod.GET, "/freelancers/**").permitAll()
+                .requestMatchers(HttpMethod.GET, "/projects/open").permitAll()
                 .requestMatchers("/owner/**").hasAnyRole("OWNER", "ADMIN")
                 .requestMatchers("/admin/**").hasRole("ADMIN")
                 .anyRequest().authenticated()

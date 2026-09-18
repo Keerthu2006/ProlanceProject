@@ -391,27 +391,39 @@ def predict_opportunity_neglect(req: OpportunityNeglectRequest):
 @app.post("/match", response_model=MatchmakingResponse)
 def match_freelancers(req: MatchmakingRequest):
     matches = []
-    proj_skills_lower = [s.lower() for s in req.project_skills]
+    proj_skills_lower = [s.lower() for s in req.project_skills] if req.project_skills else []
     for f in req.freelancers:
-        score = 0.0
-        reasoning = []
-        f_skills_lower = [s.lower() for s in f.skills]
+        score = 10.0
+        reasoning = ["Baseline AI Recommendation"]
+        
+        # Pydantic or Dict handling
+        f_skills = getattr(f, 'skills', []) or []
+        f_skills_lower = [s.lower() for s in f_skills]
+        f_headline = getattr(f, 'headline', '') or ''
+        f_bio = getattr(f, 'bio', '') or ''
+        
         overlap = set(proj_skills_lower).intersection(set(f_skills_lower))
         if overlap:
             score += len(overlap) * 20.0
-            reasoning.append(f"Matches {len(overlap)} required skills: {', '.join(overlap)}")
-        combined_text = f"{f.headline} {f.bio}".lower()
+            reasoning.append(f"Matches {len(overlap)} skills")
+            
+        combined_text = f"{f_headline} {f_bio}".lower()
         if any(skill in combined_text for skill in proj_skills_lower):
             score += 15.0
-            reasoning.append("Profile mentions relevant keywords.")
-        if score > 0:
-            import random
-            score += random.uniform(0, 10.0)
-            score = min(score, 99.0)
+            reasoning.append("Keyword match")
+            
+        import random
+        score += random.uniform(0, 10.0)
+        score = min(score, 99.0)
+        
+        f_id = getattr(f, 'id', None)
+        if f_id is not None:
             matches.append(MatchScore(
-                freelancer_id=f.id,
+                freelancer_id=f_id,
                 score=round(score, 1),
-                reason=" ".join(reasoning)
+                reason=" - ".join(reasoning)
             ))
+            
     matches.sort(key=lambda x: x.score, reverse=True)
     return MatchmakingResponse(matches=matches[:5])
+

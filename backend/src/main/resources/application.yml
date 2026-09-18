@@ -140,3 +140,9 @@ logging:
     org.hibernate.SQL: WARN
   pattern:
     console: "%d{HH:mm:ss} %-5level %logger{25} - %msg%n"
+
+# ── Stripe Payment ────────────────────────────────────────────
+stripe:
+  secret-key: ${STRIPE_SECRET_KEY:sk_test_placeholder}
+  success-url: http://localhost:5173/dashboard/client
+  cancel-url: http://localhost:5173/dashboard/client

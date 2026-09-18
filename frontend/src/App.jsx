@@ -34,6 +34,7 @@ import AutomationMonitor from './pages/dashboard/AutomationMonitor';
 import SystemHealth from './pages/dashboard/SystemHealth';
 import ReportsPage from './pages/dashboard/ReportsPage';
 import NeglectDashboard from './pages/dashboard/NeglectDashboard';
+import PaymentPage from './pages/PaymentPage';
 
 /* ── AI Chat ── */
 import AIChatAssistant from './components/AIChatAssistant';
@@ -71,6 +72,7 @@ function AnimatedRoutes() {
           <Route path="/dashboard" element={<ProtectedRoute><DashboardLayout /></ProtectedRoute>}>
             <Route index element={<DashboardRedirect />} />
             <Route path="client" element={<ClientDashboard />} />
+            <Route path="payment" element={<PaymentPage />} />
             <Route path="freelancer" element={<FreelancerDashboard />} />
             <Route path="admin" element={<ProtectedRoute allowedRoles={['ROLE_OWNER', 'ROLE_ADMIN']}><OwnerDashboard /></ProtectedRoute>} />
             <Route path="owner" element={<ProtectedRoute allowedRoles={['ROLE_OWNER', 'ROLE_ADMIN']}><OwnerDashboard /></ProtectedRoute>} />

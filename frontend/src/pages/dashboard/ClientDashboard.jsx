@@ -72,16 +72,91 @@ export default function ClientDashboard() {
 
   const { user } = useAuth();
   const [projectBids, setProjectBids] = useState({});
+  const [aiMatches, setAiMatches] = useState({});
   const [freelancers, setFreelancers] = useState([]);
   const [freelancerSearch, setFreelancerSearch] = useState('');
   const [reviewRating, setReviewRating] = useState(4);
   const [reviewComment, setReviewComment] = useState('');
   const [reviewProject, setReviewProject] = useState(null);
   const [reviewedProjects, setReviewedProjects] = useState([]);
+  const [escrowModal, setEscrowModal] = useState({ open: false, project: null, bid: null });
+  const [escrowLoading, setEscrowLoading] = useState(false);
 
   useEffect(() => {
-    if (activeTab === 0) fetchProjects();
+    if (activeTab === 0 || activeTab === 2) fetchProjects();
   }, [activeTab]);
+
+  // Pure frontend AI matching - runs whenever projects or freelancers change
+  useEffect(() => {
+    if (activeTab !== 2) return;
+    if (projects.length === 0) return;
+
+    const computeMatches = async () => {
+      // Fetch freelancers if not already loaded
+      let freelancerList = freelancers;
+      if (freelancerList.length === 0) {
+        try {
+          const res = await api.get('/freelancers');
+          freelancerList = res.data || [];
+          setFreelancers(freelancerList);
+        } catch(e) {
+          console.error('Failed to load freelancers for matching', e);
+          return;
+        }
+      }
+
+      const matchesMap = {};
+      const openProjs = projects.filter(p => p.status === 'OPEN');
+
+      for (const project of openProjs) {
+        const projectSkills = (project.skillsRequired || []).map(s => s.toLowerCase().trim());
+        const scored = [];
+
+        for (const freelancer of freelancerList) {
+          const fSkills = (freelancer.skills || []).map(s => s.toLowerCase().trim());
+          const fHeadline = (freelancer.headline || '').toLowerCase();
+          const fBio = (freelancer.bio || '').toLowerCase();
+          const fName = freelancer.user?.fullName || freelancer.user?.email || `Freelancer #${freelancer.id}`;
+
+          let score = 10; // baseline
+          const reasons = [];
+
+          // Skill overlap scoring
+          const overlap = projectSkills.filter(s => fSkills.includes(s));
+          if (overlap.length > 0) {
+            score += overlap.length * 25;
+            reasons.push(`Matches ${overlap.length} skill${overlap.length > 1 ? 's' : ''}: ${overlap.join(', ')}`);
+          }
+
+          // Keyword in headline/bio
+          const kwMatches = projectSkills.filter(s => fHeadline.includes(s) || fBio.includes(s));
+          if (kwMatches.length > 0 && overlap.length === 0) {
+            score += 15;
+            reasons.push(`Profile mentions: ${kwMatches.join(', ')}`);
+          }
+
+          // Small random noise to avoid ties
+          score += Math.random() * 5;
+          score = Math.min(Math.round(score), 99);
+
+          scored.push({
+            freelancer_id: freelancer.id,
+            freelancer_name: fName,
+            score,
+            reason: reasons.length > 0 ? reasons.join(' · ') : 'Baseline recommendation'
+          });
+        }
+
+        // Sort by score and take top 5
+        scored.sort((a, b) => b.score - a.score);
+        matchesMap[project.id] = scored.slice(0, 5);
+      }
+
+      setAiMatches(matchesMap);
+    };
+
+    computeMatches();
+  }, [activeTab, projects]);
 
   const fetchProjects = async () => {
     try {
@@ -90,8 +165,10 @@ export default function ClientDashboard() {
       const openProjs = res.data.filter(p => ['OPEN', 'BIDDING', 'IN_PROGRESS'].includes(p.status));
       const bidsMap = {};
       for (const p of openProjs) {
-        const bidRes = await api.get(`/projects/${p.id}/applications`);
-        bidsMap[p.id] = bidRes.data;
+        try {
+          const bidRes = await api.get(`/projects/${p.id}/applications`);
+          bidsMap[p.id] = bidRes.data;
+        } catch(e) {}
       }
       setProjectBids(bidsMap);
 
@@ -186,6 +263,36 @@ export default function ClientDashboard() {
       console.error(err);
       setToast({ open: true, message: 'Failed to accept bid', severity: 'error' });
     }
+  };
+
+  const handleEscrowPay = async () => {
+    if (!escrowModal.project || !escrowModal.bid) return;
+    setEscrowLoading(true);
+    try {
+      const payeeId = escrowModal.bid.freelancer?.id || escrowModal.bid.freelancerId;
+      const amount = escrowModal.bid.proposedAmount || escrowModal.project.budgetMin || 100;
+      const res = await api.post('/payments/stripe/checkout', {
+        projectId: escrowModal.project.id,
+        payeeId: payeeId,
+        amount: parseFloat(amount)
+      });
+      if (res.data.checkoutUrl && res.data.checkoutUrl !== 'STRIPE_DEMO_MODE') {
+        window.location.href = res.data.checkoutUrl;
+      } else {
+        // Demo mode - simulate success
+        setEscrowModal({ open: false, project: null, bid: null });
+        
+        // NOW ACTUALLY HIRE THE FREELANCER
+        await api.post(`/projects/${escrowModal.project.id}/hire/${payeeId}`);
+        fetchProjects(); // Refresh the UI state
+        
+        setToast({ open: true, message: '\u{1F4B3} Demo Mode: Escrow payment simulated and bid accepted! Project is now In Progress.', severity: 'success' });
+      }
+    } catch (err) {
+      console.error('Escrow payment failed:', err);
+      setToast({ open: true, message: 'Payment failed: ' + (err?.response?.data?.error || err.message), severity: 'error' });
+    }
+    setEscrowLoading(false);
   };
 
   const handleRejectBid = async (projectId, freelancerId) => {
@@ -604,9 +711,9 @@ export default function ClientDashboard() {
                                         size="small" 
                                         startIcon={<CheckCircle2 size={16} />}
                                         sx={{ bgcolor: themeStyles.primary, color: themeStyles.bg, '&:hover': { bgcolor: themeStyles.cream } }} 
-                                        onClick={() => handleAcceptBid(project.id, bid.freelancer?.id || bid.freelancerId)}
+                                        onClick={() => setEscrowModal({ open: true, project, bid })}
                                       >
-                                        Accept
+                                        Accept & Pay Escrow
                                       </Button>
                                       <Button 
                                         variant="outlined" 
@@ -629,7 +736,38 @@ export default function ClientDashboard() {
                         No pending or accepted bids yet.
                       </Typography>
                     )}
-                  </Box>
+
+                    {project.status === 'OPEN' && (
+                      <Box sx={{ mt: 4, pt: 3, borderTop: '1px solid rgba(16, 185, 129, 0.3)' }}>
+                        <Typography variant="h6" sx={{ color: '#10b981', mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
+                          <Star size={20} /> AI Recommended Freelancers
+                        </Typography>
+                        {aiMatches[project.id] && aiMatches[project.id].length > 0 ? (
+                          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                            {aiMatches[project.id].map(match => (
+                              <Box key={match.freelancer_id} sx={{ bgcolor: 'rgba(16, 185, 129, 0.05)', p: 2, borderRadius: 2, border: '1px solid rgba(16, 185, 129, 0.2)' }}>
+                                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1 }}>
+                                  <Box>
+                                    <Typography sx={{ fontWeight: 'bold', color: '#fff' }}>
+                                      {match.freelancer_name || `Freelancer #${match.freelancer_id}`}
+                                    </Typography>
+                                    <Typography variant="body2" sx={{ color: '#10b981', fontWeight: 'bold' }}>Match Score: {match.score}%</Typography>
+                                  </Box>
+                                  <Button size="small" variant="outlined" sx={{ color: '#10b981', borderColor: '#10b981' }} onClick={() => setToast({ open: true, message: `Invited Freelancer #${match.freelancer_id}`, severity: 'success' })}>Invite</Button>
+                                </Box>
+                                <Typography variant="body2" sx={{ color: '#d1d5db' }}>{match.reason}</Typography>
+                              </Box>
+                            ))}
+                          </Box>
+                        ) : (
+                          <Typography variant="body2" sx={{ color: '#d1d5db', fontStyle: 'italic' }}>
+                            Loading AI recommendations...
+                          </Typography>
+                        )}
+                      </Box>
+                    )}
+
+                    </Box>
                 );
               })}
               {projects.filter(p => ['OPEN', 'BIDDING', 'IN_PROGRESS'].includes(p.status)).length === 0 && (
@@ -824,6 +962,64 @@ export default function ClientDashboard() {
             sx={{ color: '#ff9800', borderColor: '#ff9800', '&:hover': { borderColor: '#ff9800', bgcolor: 'rgba(255,152,0,0.1)' } }}
           >
             Send Revision Request
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Stripe Escrow Payment Modal */}
+      <Dialog
+        open={escrowModal.open}
+        onClose={() => setEscrowModal({ open: false, project: null, bid: null })}
+        PaperProps={{ sx: { bgcolor: themeStyles.bg, color: themeStyles.cream, border: `1px solid ${themeStyles.primary}`, borderRadius: 3, minWidth: 480 } }}
+      >
+        <DialogTitle sx={{ borderBottom: `1px solid rgba(153,126,103,0.2)`, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <span>💳</span>
+            <Typography variant="h6">Escrow Payment</Typography>
+          </Box>
+          <IconButton onClick={() => setEscrowModal({ open: false, project: null, bid: null })} sx={{ color: themeStyles.primary }}><X /></IconButton>
+        </DialogTitle>
+        <DialogContent sx={{ mt: 2 }}>
+          <Box sx={{ bgcolor: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.3)', borderRadius: 2, p: 2, mb: 3 }}>
+            <Typography variant="body2" sx={{ color: '#10b981', display: 'flex', alignItems: 'center', gap: 1 }}>
+              <span>🔒</span> Funds are held in secure escrow and released only when you approve project completion.
+            </Typography>
+          </Box>
+          {escrowModal.project && escrowModal.bid && (
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', p: 2, ...themeStyles.glass, borderRadius: 2 }}>
+                <Typography sx={{ color: themeStyles.primary }}>Project</Typography>
+                <Typography sx={{ fontWeight: 'bold' }}>{escrowModal.project.title}</Typography>
+              </Box>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', p: 2, ...themeStyles.glass, borderRadius: 2 }}>
+                <Typography sx={{ color: themeStyles.primary }}>Freelancer</Typography>
+                <Typography sx={{ fontWeight: 'bold' }}>{escrowModal.bid.freelancer?.fullName || escrowModal.bid.freelancer?.email || 'Freelancer'}</Typography>
+              </Box>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', p: 2, ...themeStyles.glass, borderRadius: 2 }}>
+                <Typography sx={{ color: themeStyles.primary }}>Bid Amount</Typography>
+                <Typography sx={{ fontWeight: 'bold', color: '#10b981', fontSize: '1.2rem' }}>
+                  ${escrowModal.bid.proposedAmount || escrowModal.project.budgetMin || '—'}
+                </Typography>
+              </Box>
+              <Box sx={{ bgcolor: 'rgba(153,126,103,0.1)', p: 2, borderRadius: 2 }}>
+                <Typography variant="body2" sx={{ color: themeStyles.primary }}>
+                  ✔ By confirming, you accept the bid and initiate escrow payment via Stripe.
+                  <br/>✔ The freelancer begins work immediately.
+                  <br/>✔ Funds release when you click "Approve Completion".
+                </Typography>
+              </Box>
+            </Box>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ p: 3, borderTop: `1px solid rgba(153,126,103,0.2)`, gap: 2 }}>
+          <Button onClick={() => setEscrowModal({ open: false, project: null, bid: null })} sx={{ color: themeStyles.primary }}>Cancel</Button>
+          <Button
+            variant="contained"
+            disabled={escrowLoading}
+            onClick={handleEscrowPay}
+            sx={{ bgcolor: '#10b981', color: '#fff', '&:hover': { bgcolor: '#059669' }, minWidth: 200, fontWeight: 'bold' }}
+          >
+            {escrowLoading ? 'Processing...' : '💳 Confirm & Pay Escrow'}
           </Button>
         </DialogActions>
       </Dialog>

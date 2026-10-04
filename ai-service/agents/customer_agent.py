@@ -1,31 +1,54 @@
 """
 Customer Neglect Agent (v2 - Real Per-Client Scoring)
 Receives a list of at-risk clients from the real DB scan and scores the neglect severity.
-Uses Gemini LLM to generate a targeted, human-readable recommendation.
+Uses Qwen Local LLM to generate a targeted, human-readable recommendation.
 """
-import os
-import google.generativeai as genai
 from schemas import AgentResult, EventContext
 
-genai.configure(api_key=os.environ.get("GEMINI_API_KEY", "DUMMY_KEY"))
-model = genai.GenerativeModel('gemini-1.5-flash')
+NEGATIVE_WORDS = ['frustrated', 'disappointed', 'waiting', 'unacceptable', 'ignored', 
+                   'terrible', 'awful', 'useless', 'slow', 'angry', 'unhappy', 
+                   'elsewhere', 'leaving', 'cancel', 'refund', 'scam']
+POSITIVE_WORDS = ['great', 'excellent', 'happy', 'satisfied', 'perfect', 'love',
+                   'wonderful', 'fast', 'responsive', 'professional', 'recommend']
+
+def analyze_sentiment(messages: list) -> dict:
+    """Keyword-based sentiment analysis (fast, no extra model needed)"""
+    if not messages:
+        return {'score': 0.5, 'label': 'Neutral', 'negative_count': 0}
+    
+    all_text = ' '.join(m.lower() for m in messages)
+    neg = sum(1 for w in NEGATIVE_WORDS if w in all_text)
+    pos = sum(1 for w in POSITIVE_WORDS if w in all_text)
+    
+    total = neg + pos or 1
+    neg_ratio = neg / total
+    
+    if neg_ratio > 0.6:
+        label = 'Frustrated'
+        score = 1 - neg_ratio
+    elif neg_ratio > 0.3:
+        label = 'Concerned'
+        score = 0.5
+    else:
+        label = 'Satisfied'
+        score = 0.8
+    
+    return {'score': round(score, 2), 'label': label, 'negative_count': neg, 'positive_count': pos}
 
 
-def analyze(ctx: EventContext) -> AgentResult:
+def analyze(ctx: EventContext, pipe=None) -> AgentResult:
     payload = ctx.payload
 
-    # --- v2: Extract rich per-client data from real scanner ---
     inactive_clients_count = int(payload.get("inactive_clients_count", 0))
     critical_count  = int(payload.get("critical_count",  0))
     high_count      = int(payload.get("high_count",      0))
     total_clients   = int(payload.get("total_clients",   1))
     days_inactive   = int(payload.get("days_inactive",   0))
-    at_risk_clients = payload.get("at_risk_clients",     [])  # list of dicts from DB
+    at_risk_clients = payload.get("at_risk_clients",     [])  
     worst_name      = payload.get("worst_client_name",   "a client")
     worst_days      = payload.get("worst_client_days",   days_inactive)
     worst_risk      = payload.get("worst_client_risk",   "UNKNOWN")
 
-    # --- Neglect score based on proportion and severity ---
     neglect_pct = (inactive_clients_count / max(1, total_clients)) * 100
 
     if critical_count > 0 or neglect_pct > 30:
@@ -41,7 +64,6 @@ def analyze(ctx: EventContext) -> AgentResult:
         score    = 10.0
         severity = "LOW"
 
-    # Build at-risk client summary for LLM
     client_summary = ""
     if at_risk_clients:
         top_3 = at_risk_clients[:3]
@@ -53,35 +75,44 @@ def analyze(ctx: EventContext) -> AgentResult:
         ]
         client_summary = "\n".join(lines)
 
+    recent_chats = payload.get("recent_chats", [])
+    chat_summary = "\n".join([f"> {msg}" for msg in recent_chats[-5:]]) if recent_chats else "No recent chat logs available."
+
     prompt = f"""
-You are an AI business analyst for the ProLance freelance platform (like Upwork).
+You are an AI business analyst for the ProLance freelance platform.
 A real-time customer neglect scan has just completed.
 
 Results:
 - Total clients: {total_clients}
 - At-risk clients: {inactive_clients_count} ({neglect_pct:.1f}% of total)
-- CRITICAL risk: {critical_count} clients
-- HIGH risk: {high_count} clients
 - Most at-risk client: "{worst_name}" ({worst_risk} risk, inactive for {worst_days} days)
 
-Top at-risk clients:
-{client_summary if client_summary else "  No at-risk clients detected."}
+Recent platform chat logs between clients and freelancers:
+{chat_summary}
 
-Severity assessment: {severity}
-
+Based on the chat logs and data above, perform a genuine sentiment analysis.
 In 2-3 sentences:
-1. Explain why this neglect score is {severity}
-2. Suggest ONE specific automated action (e.g., personalized re-engagement email, discount offer, project suggestion)
-3. Predict what happens if no action is taken in 30 days
+1. Explain why this neglect score is {severity} based on the user sentiment in the chat logs.
+2. Suggest ONE specific automated action to fix the issues mentioned in the chat.
+3. Predict what happens if no action is taken.
 
-Be direct, professional, and data-driven. No fluff.
+Be direct, professional, and data-driven.
 """
 
     summary = ""
-    try:
-        response = model.generate_content(prompt)
-        summary = response.text.strip()
-    except Exception:
+    if pipe is not None:
+        try:
+            messages = [
+                {"role": "system", "content": "You are a professional data-driven AI analyst. Be concise."},
+                {"role": "user", "content": prompt}
+            ]
+            formatted_prompt = pipe.tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+            outputs = pipe(formatted_prompt, max_new_tokens=150, do_sample=False)
+            summary = outputs[0]["generated_text"].split("<|im_start|>assistant\n")[-1].strip()
+        except Exception as e:
+            print("Local LLM error:", e)
+
+    if not summary:
         summary = (
             f"Customer Neglect is {severity}: {inactive_clients_count} out of {total_clients} "
             f"clients are at risk ({neglect_pct:.0f}%). "
@@ -103,6 +134,6 @@ Be direct, professional, and data-driven. No fluff.
             "worst_client":    worst_name,
             "worst_days":      worst_days,
             "worst_risk":      worst_risk,
-            "at_risk_clients": at_risk_clients[:5],  # top 5 for display
+            "at_risk_clients": at_risk_clients[:5],
         },
     )

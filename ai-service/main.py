@@ -122,98 +122,83 @@ from pydantic import BaseModel
 class ChatRequest(BaseModel):
     message: str
     role: str = "user"
+    user_name: str = "User"
+    dashboard_context: str = ""
 
 class ChatResponse(BaseModel):
     response: str
 
+def retrieve_rag_context(user_query: str, dashboard_context: str = "") -> str:
+    query = user_query.lower()
+    live_data = ""
+
+    # If the frontend has already supplied the user's own projects in dashboard_context,
+    # do NOT overwrite with platform-wide open projects — it confuses the small Qwen model
+    # into listing generic "Project 1, Project 5" IDs instead of real titles.
+    has_personal_projects = "Client's Active Projects:" in dashboard_context or "Assigned Work:" in dashboard_context
+
+    try:
+        import requests
+        if "freelancer" in query or "talent" in query or "skills" in query or "who" in query:
+            res = requests.get("http://localhost:8080/api/freelancers", timeout=3)
+            if res.status_code == 200:
+                freelancers = res.json()
+                live_data += "\n[LIVE DATABASE - FREELANCERS]\n"
+                for i, f in enumerate(freelancers[:5]):
+                    skills = ", ".join(f.get("skills", []))
+                    name = f.get("user", {}).get("fullName", "Unknown")
+                    live_data += f"- {name}: {f.get('headline', '')} | Skills: {skills} | Rate: ${f.get('hourlyRate', 0)}/hr\n"
+
+        # Only query open projects from DB when user's personal project list is NOT already in context
+        if not has_personal_projects and ("project" in query or "job" in query or "work" in query):
+            res = requests.get("http://localhost:8080/api/projects/open", timeout=3)
+            if res.status_code == 200:
+                projects = res.json()
+                live_data += "\n[LIVE DATABASE - OPEN PROJECTS]\n"
+                for i, p in enumerate(projects[:5]):
+                    skills = ", ".join(p.get("skillsRequired", []))
+                    live_data += f"- '{p.get('title')}' by {p.get('clientName')} | Budget: ${p.get('budgetMin')}-${p.get('budgetMax')} | Skills: {skills}\n"
+
+    except Exception as e:
+        print("Failed to fetch live data:", e)
+
+    if not live_data:
+        live_data = "No additional live database records needed."
+    return live_data
+
 @app.post("/chat", response_model=ChatResponse)
 def chat(req: ChatRequest):
-    """ProLance AI Chat endpoint - tries Gemini first, falls back to Groq, then template."""
-    gemini_key = os.getenv("GEMINI_API_KEY", "")
-    groq_key = os.getenv("GROQ_API_KEY", "")
+    try:
+        import requests
+        rag_context = retrieve_rag_context(req.message, req.dashboard_context)
+        
+        system_prompt = (
+            "You are ProLance AI, an intelligent platform assistant running locally.\n"
+            "You are speaking to a user named " + req.user_name + " (Role: " + req.role + ").\n"
+            "IMPORTANT: You HAVE access to real-time database information.\n"
+            "You MUST use the provided LIVE DATABASE RAG CONTEXT to answer the user's question when they ask about their data.\n"
+            "CRITICAL: If the user asks you to GENERATE new content, write a draft, or brainstorm (e.g., 'help me write a project description'), DO NOT just copy an existing project from the context. Generate fresh, high-quality, original content tailored to their specific request.\n\n"
+            "--- LIVE DATABASE RAG CONTEXT ---\n" + rag_context + "\n\n"
+            "--- DASHBOARD CONTEXT ---\n" + req.dashboard_context
+        )
 
-    system_context = (
-        f"You are ProLance AI, an intelligent business assistant for the ProLance "
-        f"AI-Powered Freelance Intelligence Platform. You are assisting a {req.role}. "
-        f"Be concise, helpful, professional, and actionable. "
-        f"Focus on freelancing, project management, AI insights, market intelligence, and business growth."
-    )
-
-    if gemini_key:
-        try:
-            import google.generativeai as genai
-            genai.configure(api_key=gemini_key)
-            model = genai.GenerativeModel(
-                model_name='gemini-2.0-flash',
-                system_instruction=system_context
-            )
-            response = model.generate_content(req.message)
-            return ChatResponse(response=response.text)
-        except Exception:
-            try:
-                model = genai.GenerativeModel('gemini-1.5-flash-latest')
-                prompt = f"{system_context}\n\nUser: {req.message}"
-                response = model.generate_content(prompt)
-                return ChatResponse(response=response.text)
-            except Exception:
-                pass
-
-    if groq_key:
-        try:
-            import groq as groq_lib
-            client = groq_lib.Groq(api_key=groq_key)
-            chat_resp = client.chat.completions.create(
-                model="groq/compound-mini",
-                messages=[
-                    {"role": "system", "content": system_context},
-                    {"role": "user", "content": req.message},
-                ],
-                temperature=0.7,
-                max_tokens=600,
-            )
-            return ChatResponse(response=chat_resp.choices[0].message.content.strip())
-        except Exception:
-            pass
-
-    msg_lower = req.message.lower()
-    if any(w in msg_lower for w in ["project", "post", "create"]):
-        reply = ("To post a project on ProLance:\n1. Go to your Client Dashboard\n2. Click 'Post Project'\n"
-                 "3. Fill in title, description, budget, deadline, and required skills\n"
-                 "4. AI will analyze and match you with the best freelancers\n"
-                 "5. Review bids and accept the best proposal!")
-    elif any(w in msg_lower for w in ["bid", "apply", "proposal"]):
-        reply = ("To bid on a project:\n1. Browse open projects in your Freelancer Dashboard\n"
-                 "2. Click 'Place Bid' on any project that matches your skills\n"
-                 "3. Write a compelling cover letter and set your proposed amount\n"
-                 "4. The client will review all bids and choose the best fit!")
-    elif any(w in msg_lower for w in ["ai", "neglect", "recommendation"]):
-        reply = ("ProLance AI continuously monitors 5 neglect areas:\n"
-                 "• Customer Neglect — detects inactive clients and auto-engages\n"
-                 "• Product Neglect — guides confused users through features\n"
-                 "• Financial Neglect — Random Forest ML predicts revenue risks\n"
-                 "• Opportunity Neglect — SEO trends + freelancer skill gap analysis\n"
-                 "• Freelancer Neglect — detects ghosting freelancers in real-time\n"
-                 "Check the AI Intelligence Center for real-time insights!")
-    elif any(w in msg_lower for w in ["cancel", "delete", "remove"]):
-        reply = ("To cancel a project:\n• Within 48 hours of acceptance: use the AI Assistant or email support\n"
-                 "• For open projects with no bids: simply delete from your project list\n"
-                 "• Our AI will notify the freelancer automatically")
-    elif any(w in msg_lower for w in ["team", "teamlancer"]):
-        reply = ("TeamLancer (Team Projects) on ProLance:\n"
-                 "• When posting a project, select 'Team' instead of 'Individual'\n"
-                 "• Specify team size (2-10 members)\n"
-                 "• AI matches you with compatible freelancer teams\n"
-                 "• All team members see project updates in real-time!")
-    else:
-        reply = (f"Hello! I'm ProLance AI, your intelligent business assistant. 🚀\n\n"
-                 f"I'm currently running in **Limited Template Mode** because the AI API is unavailable.\n\n"
-                 f"I can still help you with these topics if you use keywords:\n"
-                 f"• 'project' - Posting and managing projects\n"
-                 f"• 'bid' - Applying for projects\n"
-                 f"• 'ai' - Understanding AI recommendations\n"
-                 f"• 'team' - Using TeamLancer features\n\n"
-                 f"*(To restore full AI, please provide a valid GROQ_API_KEY or GEMINI_API_KEY in the .env file)*")
-
+        response = requests.post("http://127.0.0.1:11434/api/chat", json={
+            "model": "qwen2.5:0.5b",
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": req.message}
+            ],
+            "stream": False
+        }, timeout=120)
+        
+        if response.status_code == 200:
+            reply = response.json()["message"]["content"]
+        else:
+            reply = "I apologize, my local Ollama server returned an error: " + response.text
+            
+    except Exception as e:
+        reply = "I apologize, my local AI encountered an error communicating with Ollama: " + str(e)
+        
     return ChatResponse(response=reply)
 import joblib
 from pydantic import BaseModel
@@ -388,42 +373,134 @@ def predict_opportunity_neglect(req: OpportunityNeglectRequest):
         "summary": result.summary,
         "raw_data": result.raw_data
     }
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
+
 @app.post("/match", response_model=MatchmakingResponse)
 def match_freelancers(req: MatchmakingRequest):
     matches = []
     proj_skills_lower = [s.lower() for s in req.project_skills] if req.project_skills else []
+    project_text = getattr(req, 'project_title', '') + " " + getattr(req, 'project_description', '') + " " + " ".join(proj_skills_lower)
+    
+    scored_freelancers = []
+    
+    # 1. Prepare documents for TF-IDF
+    documents = [project_text]
+    freelancer_texts = []
+    
     for f in req.freelancers:
-        score = 10.0
-        reasoning = ["Baseline AI Recommendation"]
-        
-        # Pydantic or Dict handling
         f_skills = getattr(f, 'skills', []) or []
-        f_skills_lower = [s.lower() for s in f_skills]
         f_headline = getattr(f, 'headline', '') or ''
         f_bio = getattr(f, 'bio', '') or ''
+        f_text = f"{' '.join(f_skills)} {f_headline} {f_bio}".lower()
+        freelancer_texts.append(f_text)
+        documents.append(f_text)
         
+    # 2. Calculate TF-IDF and Cosine Similarity
+    cosine_scores = []
+    if any(freelancer_texts) and project_text.strip():
+        try:
+            vectorizer = TfidfVectorizer(stop_words='english')
+            tfidf_matrix = vectorizer.fit_transform(documents)
+            cosine_scores = cosine_similarity(tfidf_matrix[0:1], tfidf_matrix[1:]).flatten()
+        except Exception:
+            cosine_scores = [0.0] * len(req.freelancers)
+    else:
+        cosine_scores = [0.0] * len(req.freelancers)
+
+    for i, f in enumerate(req.freelancers):
+        score = 10.0
+        reasoning = ["Baseline AI"]
+        
+        f_skills = getattr(f, 'skills', []) or []
+        f_skills_lower = [s.lower() for s in f_skills]
+        
+        # Jaccard / Set Intersection
         overlap = set(proj_skills_lower).intersection(set(f_skills_lower))
         if overlap:
-            score += len(overlap) * 20.0
-            reasoning.append(f"Matches {len(overlap)} skills")
+            score += len(overlap) * 15.0
+            reasoning.append(f"Matches {len(overlap)} exact skills")
             
-        combined_text = f"{f_headline} {f_bio}".lower()
-        if any(skill in combined_text for skill in proj_skills_lower):
-            score += 15.0
-            reasoning.append("Keyword match")
+        # Cosine Similarity Score
+        cos_sim = cosine_scores[i]
+        if cos_sim > 0.05:
+            boost = cos_sim * 40.0 
+            score += boost
+            reasoning.append(f"TF-IDF Semantic Match: {cos_sim:.2f}")
             
         import random
-        score += random.uniform(0, 10.0)
+        score += random.uniform(0, 5.0)
         score = min(score, 99.0)
         
         f_id = getattr(f, 'id', None)
         if f_id is not None:
-            matches.append(MatchScore(
-                freelancer_id=f_id,
-                score=round(score, 1),
-                reason=" - ".join(reasoning)
-            ))
+            f_name = getattr(f, 'name', None) or f"Freelancer #{str(f_id)[:8]}"
+            f_rate = getattr(f, 'hourly_rate', 0.0)
+            display_name = f"{f_name} (${f_rate}/hr)" if f_rate else f_name
             
-    matches.sort(key=lambda x: x.score, reverse=True)
-    return MatchmakingResponse(matches=matches[:5])
+            scored_freelancers.append({
+                "id": str(f_id),
+                "name": display_name,
+                "score": score,
+                "skills": f_skills,
+                "reason": " - ".join(reasoning)
+            })
+            
+    scored_freelancers.sort(key=lambda x: x["score"], reverse=True)
+    
+    # 3. Combinatorics for Team Projects
+    if getattr(req, 'project_type', None) == "TEAM" and getattr(req, 'team_size', 1) > 1:
+        import itertools
+        team_size = min(req.team_size, len(scored_freelancers))
+        if team_size > 1:
+            best_teams = []
+            for combo in itertools.combinations(scored_freelancers[:10], team_size):
+                combo_skills = set()
+                for member in combo:
+                    combo_skills.update([s.lower() for s in member["skills"]])
+                
+                covered = set(proj_skills_lower).intersection(combo_skills)
+                coverage_pct = len(covered) / len(proj_skills_lower) if proj_skills_lower else 1.0
+                
+                avg_score = sum(m["score"] for m in combo) / team_size
+                team_score = min(99.9, avg_score + (coverage_pct * 30.0))
+                
+                team_ids = ",".join([m["id"] for m in combo])
+                
+                best_teams.append({
+                    "ids": team_ids,
+                    "score": team_score,
+                    "covered": len(covered),
+                    "total": len(proj_skills_lower)
+                })
+            
+            best_teams.sort(key=lambda x: x["score"], reverse=True)
+            for i, t in enumerate(best_teams[:5]):
+                matches.append(MatchScore(
+                    freelancer_id=t["ids"],
+                    freelancer_name=f"AI Optimized Team (Covers {t['covered']}/{t['total']} skills)",
+                    score=round(t["score"], 1),
+                    reason="Combined skills perfectly match the project via Algorithmic Grouping."
+                ))
+            return MatchmakingResponse(matches=matches)
 
+    for f in scored_freelancers[:5]:
+        matches.append(MatchScore(
+            freelancer_id=f["id"],
+            freelancer_name=f["name"],
+            score=round(f["score"], 1),
+            reason=f["reason"]
+        ))
+        
+    return MatchmakingResponse(matches=matches)
+
+    # Individual Matching
+    for f in scored_freelancers[:5]:
+        matches.append(MatchScore(
+            freelancer_id=f["id"],
+            freelancer_name=f["name"],
+            score=round(f["score"], 1),
+            reason=f["reason"]
+        ))
+        
+    return MatchmakingResponse(matches=matches)

@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Brain, X, Send, Minimize2, Maximize2, Sparkles } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useLocation } from 'react-router-dom';
+import api from '../api/api';
 
 const PROLANCE_SYSTEM_PROMPTS = {
   '/dashboard/client':     'You are ProLance AI, an intelligent business consultant for a client on the ProLance freelance platform. Help with project creation, team management, budget optimization, and understanding AI recommendations. Be concise, helpful, and proactive.',
@@ -47,6 +48,168 @@ export default function AIChatAssistant() {
     return PROLANCE_SYSTEM_PROMPTS[path] || PROLANCE_SYSTEM_PROMPTS['default'];
   };
 
+  const getRealTimeContext = async () => {
+    let context = "";
+    try {
+        if (user?.role === 'ROLE_CLIENT') {
+            // 1. All projects with full details
+            try {
+                const res = await api.get('/projects/mine');
+                const projects = res.data;
+                if (projects.length > 0) {
+                    context += `Client's Active Projects (${projects.length} total):\n`;
+                    for (let p of projects) {
+                        context += `- "${p.title}" | ID: ${p.id} | Status: ${p.status} | Budget: $${p.budgetMin}-$${p.budgetMax} | Duration: ${p.durationDays || 'N/A'} days | Type: ${p.projectType || 'INDIVIDUAL'}\n`;
+                        context += `  Skills Required: ${p.skillsRequired ? p.skillsRequired.join(', ') : 'None'}\n`;
+
+                        // Bids per project with freelancer names
+                        try {
+                            const bidsRes = await api.get(`/projects/${p.id}/applications`);
+                            if (bidsRes.data && bidsRes.data.length > 0) {
+                                context += `  Bids Received (${bidsRes.data.length}):\n`;
+                                bidsRes.data.forEach(b => {
+                                    const fname = b.freelancer?.fullName || b.freelancerName || 'Unknown Freelancer';
+                                    context += `    * ${fname} bid $${b.proposedAmount} — Status: ${b.status}\n`;
+                                });
+                            } else {
+                                context += `  No bids received yet.\n`;
+                            }
+                        } catch(err){}
+
+                        // Milestones per project
+                        try {
+                            const msRes = await api.get(`/projects/${p.id}/milestones`);
+                            if (msRes.data && msRes.data.length > 0) {
+                                context += `  Milestones (${msRes.data.length}):\n`;
+                                msRes.data.forEach(m => {
+                                    context += `    * "${m.title}" — Status: ${m.status} | Amount: $${m.amount} | Due: ${m.dueDate ? new Date(m.dueDate).toLocaleDateString() : 'N/A'}\n`;
+                                });
+                            }
+                        } catch(err){}
+                    }
+                } else {
+                    context += "Client has no active projects yet.\n";
+                }
+            } catch(err){}
+
+            // 2. Payments / Contracts
+            try {
+                const paymentsRes = await api.get('/payments/mine');
+                if (paymentsRes.data && paymentsRes.data.length > 0) {
+                    context += `\nPayments & Contracts (${paymentsRes.data.length}):\n`;
+                    paymentsRes.data.forEach(pay => {
+                        context += `- $${pay.amount} | Status: ${pay.status}\n`;
+                    });
+                }
+            } catch(err){}
+
+            // 3. Reviews
+            try {
+                const reviewsRes = await api.get('/reviews/mine');
+                if (reviewsRes.data && reviewsRes.data.length > 0) {
+                    context += `\nReviews Given/Received (${reviewsRes.data.length}):\n`;
+                    reviewsRes.data.forEach(r => {
+                        context += `- Rating: ${r.rating}/5 — "${r.comment}"\n`;
+                    });
+                }
+            } catch(err){}
+
+            // 4. Available freelancers for browsing
+            try {
+                const flRes = await api.get('/freelancers');
+                if (flRes.data && flRes.data.length > 0) {
+                    context += `\nAvailable Freelancers on Platform (${flRes.data.length} total):\n`;
+                    flRes.data.slice(0, 8).forEach(f => {
+                        const name = f.user?.fullName || f.fullName || 'Unknown';
+                        const skills = f.skills ? f.skills.join(', ') : 'No skills listed';
+                        context += `- ${name} | Rate: $${f.hourlyRate || 0}/hr | Skills: ${skills} | Headline: ${f.headline || 'N/A'}\n`;
+                    });
+                }
+            } catch(err){}
+
+        } else if (user?.role === 'ROLE_FREELANCER') {
+            // Profile
+            try {
+                const profileRes = await api.get('/freelancers/me');
+                const profile = profileRes.data;
+                context += `My Freelancer Profile:\n- Name: ${user?.fullName || 'N/A'}\n- Headline: ${profile.headline || 'Not set'}\n- Rate: $${profile.hourlyRate || 0}/hr\n- Skills: ${profile.skills ? profile.skills.join(', ') : 'None'}\n- Availability: ${profile.availability || 'N/A'}\n`;
+            } catch(err){}
+
+            // My Bids
+            try {
+                const bidsRes = await api.get('/projects/my-applications');
+                if (bidsRes.data && bidsRes.data.length > 0) {
+                    context += `\nMy Bids (${bidsRes.data.length}):\n`;
+                    bidsRes.data.forEach(b => {
+                        context += `- Project: "${b.projectTitle || b.projectId}" | Bid: $${b.proposedAmount} | Status: ${b.status}\n`;
+                    });
+                } else {
+                    context += "\nNo active bids placed yet.\n";
+                }
+            } catch(err){}
+
+            // Assigned work + milestones
+            try {
+                const assignRes = await api.get('/projects/assigned');
+                if (assignRes.data && assignRes.data.length > 0) {
+                    context += `\nActive Work (${assignRes.data.length} projects):\n`;
+                    for (let p of assignRes.data) {
+                        context += `- "${p.title}" | Status: ${p.status} | Budget: $${p.budgetMin}-$${p.budgetMax}\n`;
+                        try {
+                            const msRes = await api.get(`/projects/${p.id}/milestones`);
+                            if (msRes.data && msRes.data.length > 0) {
+                                msRes.data.forEach(m => {
+                                    context += `  * Milestone: "${m.title}" — ${m.status}\n`;
+                                });
+                            }
+                        } catch(err){}
+                    }
+                } else {
+                    context += "\nNo projects currently assigned.\n";
+                }
+            } catch(err){}
+
+            // Reviews
+            try {
+                const reviewsRes = await api.get('/reviews/mine');
+                if (reviewsRes.data && reviewsRes.data.length > 0) {
+                    const avg = (reviewsRes.data.reduce((a,r) => a + r.rating, 0) / reviewsRes.data.length).toFixed(1);
+                    context += `\nReviews Received: ${reviewsRes.data.length} reviews, Avg: ${avg}/5\n`;
+                    reviewsRes.data.slice(0,3).forEach(r => {
+                        context += `- "${r.comment}" — ${r.rating}/5\n`;
+                    });
+                }
+            } catch(err){}
+
+        } else if (user?.role === 'ROLE_OWNER' || user?.role === 'ROLE_ADMIN') {
+            try {
+                const summaryRes = await api.get('/owner/summary');
+                const summary = summaryRes.data;
+                context += `Platform Admin Summary:\n- Total Revenue: $${summary.totalRevenue}\n- Total Users: ${summary.totalUsers}\n- Total Projects: ${summary.totalProjects}\n`;
+            } catch(err){}
+            try {
+                const recRes = await api.get('/owner/recommendations/pending');
+                if (recRes.data && recRes.data.length > 0) {
+                    context += `\nPending AI Recommendations: ${recRes.data.length}\n`;
+                    recRes.data.slice(0, 5).forEach(r => {
+                        context += `- [${r.status}] ${r.problem || r.recommendedAction || 'Recommendation'}\n`;
+                    });
+                }
+            } catch(err){}
+            try {
+                const neglectRes = await api.get('/owner/neglect/customers');
+                if (neglectRes.data) {
+                    context += `\nCustomer Neglect: ${neglectRes.data.atRiskCount || 0} at-risk clients\n`;
+                }
+            } catch(err){}
+        }
+    } catch (e) {
+        console.warn("Could not fetch real-time context for AI", e);
+    }
+    return context;
+  };
+
+
   const sendMessage = async (text) => {
     if (!text.trim() || loading) return;
     const userMsg = { id: Date.now(), role: 'user', text: text.trim(), time: new Date().toLocaleTimeString([], { hour:'2-digit',minute:'2-digit' }) };
@@ -55,10 +218,30 @@ export default function AIChatAssistant() {
     setLoading(true);
 
     try {
+      const realTimeContextRaw = await getRealTimeContext();
+      
+      const platformKnowledge = `
+--- PLATFORM KNOWLEDGE BASE ---
+- ProLance uses an AI Neglect Engine with 4 models: Customer Neglect, Product Neglect, Financial Neglect, and Opportunity Neglect.
+- "Product Neglect" means a user hasn't used a key feature (like the AI Chat, Bidding, Escrow). If they ask how to use the platform, guide them!
+- How to post a project: Click "Post Project" in the sidebar, fill out the details (Category, Budget, Skills), and view the AI preview before submitting.
+- Escrow system: When a freelancer is hired, the budget is held securely in escrow. It auto-releases upon milestone approval.
+- TeamLancers: Freelancers can group up into Teams to bid on larger enterprise projects.
+- AI Action Center: Only Admins/Owners see this. It allows them to approve AI-generated automations like discount codes and email campaigns.
+--- END PLATFORM KNOWLEDGE BASE ---
+
+${realTimeContextRaw}
+`;
+
       const res = await fetch('http://localhost:8001/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: `${getSystemPrompt()}\n\nUser: ${text.trim()}`, role: user?.role || 'user' }),
+        body: JSON.stringify({ 
+            message: text.trim(), 
+            role: user?.role || 'user',
+            user_name: user?.fullName || user?.username || 'User',
+            dashboard_context: platformKnowledge
+        }),
       });
       if (!res.ok) throw new Error('Service unavailable');
       const data = await res.json();
@@ -220,7 +403,7 @@ export default function AIChatAssistant() {
                         </motion.button>
                       </Box>
                       <Typography variant="caption" sx={{ color: '#7D6A5C', display: 'block', textAlign: 'center', mt: 1, fontSize: '0.68rem' }}>
-                        Powered by Gemini AI • Context-aware for this page
+                        ProLance AI • Context-aware for this page
                       </Typography>
                     </Box>
                   </motion.div>

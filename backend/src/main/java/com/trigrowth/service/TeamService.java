@@ -80,4 +80,9 @@ public class TeamService {
     public List<Team> getTeamsForUser(UUID userId) {
         return teamRepository.findByMemberId(userId);
     }
+
+    @Transactional(readOnly = true)
+    public List<Team> getAllTeams() {
+        return teamRepository.findAll();
+    }
 }

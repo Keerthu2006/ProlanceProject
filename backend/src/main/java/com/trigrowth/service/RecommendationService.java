@@ -33,6 +33,27 @@ public class RecommendationService {
      * Persists the AI service response (agent results + recommendation).
      * Called by EventCollectorService after every /analyze/event call.
      */
+    @jakarta.annotation.PostConstruct
+    public void cleanupDuplicates() {
+        try {
+            List<Recommendation> allPending = recommendationRepository.findByStatus("PENDING");
+            java.util.Set<String> seen = new java.util.HashSet<>();
+            for (Recommendation r : allPending) {
+                if (r.getAgentResult() != null) {
+                    String key = r.getAgentResult().getAgentName() + "|" + r.getRecommendedAction();
+                    if (seen.contains(key)) {
+                        recommendationRepository.delete(r);
+                        log.info("Deleted duplicate recommendation ID: {}", r.getId());
+                    } else {
+                        seen.add(key);
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.error("Failed to cleanup", e);
+        }
+    }
+
     public void persistAiResponse(BusinessEvent event, Map<String, Object> aiResponse) {
         try {
             // ── 1. Parse agent results ────────────────────────────────
@@ -96,6 +117,19 @@ public class RecommendationService {
                         .createdAt(Instant.now())
                         .updatedAt(Instant.now())
                         .build();
+
+                // Deduplication check
+                final String currentAgentName = topAgentResult.getAgentName();
+                final String currentRecAction = rec.getRecommendedAction();
+                boolean duplicateExists = recommendationRepository.findByStatus("PENDING").stream()
+                        .anyMatch(r -> r.getAgentResult() != null 
+                                && r.getAgentResult().getAgentName().equals(currentAgentName)
+                                && r.getRecommendedAction().equals(currentRecAction));
+                
+                if (duplicateExists) {
+                    log.info("Duplicate PENDING recommendation skipped for agent: {}", topAgentResult.getAgentName());
+                    return;
+                }
 
                 recommendationRepository.save(rec);
 

@@ -1,0 +1,12 @@
+Feature Module,Test Case,Expected Outcome,Status,Notes
+Auth,User Login,User can login with email and password,PASS,Token generated successfully
+Auth,Google OAuth,User can login using Google account,PASS,Google OAuth 2.0 integrated
+Client Dashboard,View Projects,Client can view their open and active projects,PASS,Live data fetched from backend
+Client Dashboard,Post Project,Client can post a new project with skills and budget,PASS,Project creation saves to DB
+Client Dashboard,Receive Bids,Client can see bids from freelancers on their projects,PASS,Bids displayed correctly
+AI Engine,Matchmaking,AI calculates semantic fit between freelancer profile and project,PASS,TF-IDF offline semantic matching implemented
+AI Engine,Customer Neglect,AI detects inactive clients and triggers alerts,PASS,Neglect scoring works
+AI Engine,Opportunity Discovery,AI identifies trending skills and alerts freelancers,PASS,Trending skills aggregated
+Freelancer Dashboard,Browse Projects,Freelancers can view open projects matching their skills,PASS,Projects filterable
+Freelancer Dashboard,Submit Bid,Freelancers can propose a budget and cover letter,PASS,Bid saved to DB
+Admin Dashboard,System Metrics,Admin can view revenue and user growth charts,PASS,KPIs displayed

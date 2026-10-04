@@ -28,6 +28,11 @@ const NotificationsPage = () => {
     }
   }, [user]);
 
+  useEffect(() => {
+    window.addEventListener('ws_notification', loadData);
+    return () => window.removeEventListener('ws_notification', loadData);
+  }, [user]);
+
   const loadData = async () => {
     setLoading(true);
     try {
@@ -37,94 +42,51 @@ const NotificationsPage = () => {
 
       let genNotifs = [];
 
-      if (user?.role === 'ROLE_CLIENT') {
-        const projRes = await api.get('/projects/mine');
-        const projects = projRes.data.content || projRes.data || [];
-        
-        projects.forEach(p => {
-          if (p.status === 'IN_PROGRESS') {
-            genNotifs.push({
-              id: `p_prog_${p.id}`,
-              type: 'Project',
-              color: '#997E67', // primary
-              icon: <Briefcase size={20} />,
-              title: 'Project In Progress',
-              message: `Your project "${p.title}" is currently in progress.`,
-              date: p.updatedAt || new Date().toISOString()
-            });
-          } else if (p.status === 'OPEN' && (!p.bids || p.bids.length === 0)) {
-            genNotifs.push({
-              id: `p_nobid_${p.id}`,
-              type: 'Project',
-              color: '#d32f2f', // red/warning
-              icon: <Bell size={20} />,
-              title: 'No Bids Yet',
-              message: `No bids yet on "${p.title}" - consider updating the description or budget.`,
-              date: p.createdAt || new Date().toISOString()
-            });
-          }
+      // 1. Load from backend DB
+      try {
+        const dbRes = await api.get('/notifications');
+        const dbNotifs = dbRes.data || [];
+        dbNotifs.forEach(n => {
+          genNotifs.push({
+            id: `db_${n.id}`,
+            dbId: n.id,
+            type: n.type || 'INFO',
+            color: n.type === 'SUCCESS' ? '#10b981' : n.type === 'WARNING' ? '#f59e0b' : n.type === 'AI' ? '#8b5cf6' : '#60a5fa',
+            icon: <Bell size={20} />,
+            title: n.title,
+            message: n.message,
+            date: n.createdAt,
+            isRead: n.read
+          });
         });
-      } else {
-        // FREELANCER
-        const assignRes = await api.get('/projects/assigned');
-        const assigned = assignRes.data.content || assignRes.data || [];
-        assigned.forEach(p => {
-          if (p.status === 'IN_PROGRESS') {
-            genNotifs.push({
-              id: `a_prog_${p.id}`,
-              type: 'Project',
-              color: '#997E67',
-              icon: <Briefcase size={20} />,
-              title: 'Project In Progress',
-              message: `The project "${p.title}" you are assigned to is in progress.`,
-              date: p.updatedAt || new Date().toISOString()
-            });
-          }
-        });
+      } catch(e) { console.log('No DB notifications', e); }
 
+      // 2. Role-based computed notifications
+      if (user?.role === 'ROLE_CLIENT') {
+        try {
+          const projRes = await api.get('/projects/mine');
+          const projects = projRes.data.content || projRes.data || [];
+          projects.forEach(p => {
+            if (p.status === 'IN_PROGRESS') {
+              genNotifs.push({ id: `p_prog_${p.id}`, type: 'Project', color: '#997E67', icon: <Briefcase size={20} />, title: 'Project In Progress', message: `Your project "${p.title}" is currently in progress.`, date: p.updatedAt || new Date().toISOString() });
+            }
+          });
+        } catch(e) {}
+      } else if (user?.role === 'ROLE_FREELANCER') {
         try {
           const appRes = await api.get('/projects/my-applications');
           const apps = appRes.data.content || appRes.data || [];
           apps.forEach(app => {
             if (app.status === 'ACCEPTED') {
-              genNotifs.push({
-                id: `b_acc_${app.id}`,
-                type: 'Bids',
-                color: '#2e7d32', // green
-                icon: <DollarSign size={20} />,
-                title: 'Bid Accepted!',
-                message: `Your bid on a project was accepted!`,
-                date: app.updatedAt || new Date().toISOString()
-              });
-            } else if (app.status === 'REJECTED') {
-              genNotifs.push({
-                id: `b_rej_${app.id}`,
-                type: 'Bids',
-                color: '#d32f2f',
-                icon: <DollarSign size={20} />,
-                title: 'Bid Not Selected',
-                message: `Your bid was not selected this time.`,
-                date: app.updatedAt || new Date().toISOString()
-              });
+              genNotifs.push({ id: `b_acc_${app.id}`, type: 'Bids', color: '#2e7d32', icon: <DollarSign size={20} />, title: 'Bid Accepted!', message: `Your bid on a project was accepted! 🎉`, date: app.updatedAt || new Date().toISOString() });
             }
           });
-        } catch (e) {
-          console.log('No applications endpoint or error fetching', e);
-        }
+        } catch(e) {}
       }
 
-      // Add AI Insight
-      genNotifs.push({
-        id: 'ai_insight_1',
-        type: 'AI Insights',
-        color: '#664930', // brown
-        icon: <Sparkles size={20} />,
-        title: 'Market Insight',
-        message: 'AI suggests increasing your profile completeness to attract 30% more clients.',
-        date: new Date().toISOString()
-      });
+      // 3. AI Insight
+      genNotifs.push({ id: 'ai_insight_1', type: 'AI Insights', color: '#664930', icon: <Sparkles size={20} />, title: 'Market Insight', message: 'AI suggests increasing your profile completeness to attract 30% more clients.', date: new Date(Date.now() - 3600000).toISOString() });
 
-      // Sort by date desc
       genNotifs.sort((a, b) => new Date(b.date) - new Date(a.date));
       setNotifications(genNotifs);
 
@@ -237,7 +199,7 @@ const NotificationsPage = () => {
                       transition: 'all 0.2s',
                       '&:hover': { bgcolor: 'rgba(153,126,103,0.15)' }
                     }}
-                    onClick={() => handleMarkAsRead(notif.id)}
+                    onClick={() => handleMarkAsRead(notif)}
                   >
                     <CardContent sx={{ p: '24px !important', display: 'flex', alignItems: 'flex-start', gap: 3 }}>
                       <Box sx={{ 
@@ -282,3 +244,5 @@ const NotificationsPage = () => {
 };
 
 export default NotificationsPage;
+
+

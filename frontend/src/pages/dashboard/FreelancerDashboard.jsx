@@ -54,9 +54,9 @@ export default function FreelancerDashboard() {
 
   const { user } = useAuth();
   const [profile, setProfile] = useState({
-    name: user?.fullName || 'Loading...', profession: 'Loading...', hourlyRate: '-', 
+    name: user?.fullName || 'Loading...', profession: 'Loading...', hourlyRate: '', 
     availability: '-', completeness: 0,
-    bio: 'Loading...', skills: ''
+    bio: 'Loading...', skills: '', avatarUrl: ''
   });
 
   const [isReviewModalOpen, setIsReviewModalOpen] = useState(false);
@@ -73,11 +73,12 @@ export default function FreelancerDashboard() {
         setProfile({
           name: data.user?.fullName || user?.fullName || 'Unknown',
           profession: data.headline || 'Freelancer',
-          hourlyRate: data.hourlyRate ? `$${data.hourlyRate}` : 'Negotiable',
+          hourlyRate: data.hourlyRate ? data.hourlyRate : '',
           availability: data.availability || '-',
           completeness: 100,
           bio: data.bio || '',
-          skills: data.skills ? data.skills.join(', ') : ''
+          skills: data.skills ? data.skills.join(', ') : '',
+          avatarUrl: data.user?.profileImageUrl || ''
         });
       } catch (err) {
         console.error("Failed to load profile", err);
@@ -156,6 +157,24 @@ export default function FreelancerDashboard() {
       console.error('Failed to fetch assigned projects', err);
     } finally {
       setAssignedLoading(false);
+    }
+  };
+
+  const handleSaveProfile = async () => {
+    try {
+      const skillsArray = profile.skills.split(',').map(s => s.trim()).filter(s => s);
+      await api.put('/freelancers/me', {
+        headline: profile.profession,
+        hourlyRate: profile.hourlyRate ? parseFloat(profile.hourlyRate) : null,
+        bio: profile.bio,
+        skills: skillsArray,
+        profileImageUrl: profile.avatarUrl
+      });
+      setToast({open: true, message: 'Profile updated successfully!', severity: 'success'});
+      setIsEditModalOpen(false);
+    } catch(err) {
+      console.error(err);
+      setToast({open: true, message: 'Failed to update profile.', severity: 'error'});
     }
   };
 
@@ -242,7 +261,7 @@ export default function FreelancerDashboard() {
       {/* SECTION A: Welcome + Profile Snapshot */}
       <Box sx={{ mb: 4, ...themeStyles.glass, p: 4, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 3 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 3 }}>
-          <Avatar src="https://i.pravatar.cc/150?u=alex" sx={{ width: 100, height: 100 }} />
+          <Avatar src={profile.avatarUrl || `https://ui-avatars.com/api/?name=${encodeURIComponent(profile.name)}&background=997E67&color=fff`} sx={{ width: 100, height: 100 }} />
           <Box>
             <Typography variant="h4" fontWeight="bold">{profile.name}</Typography>
             <Typography variant="subtitle1" sx={{ color: themeStyles.primary, mb: 1 }}>{profile.profession}</Typography>
@@ -257,6 +276,22 @@ export default function FreelancerDashboard() {
             </Box>
           </Box>
         </Box>
+        
+        <Box sx={{ flex: 1, minWidth: '300px', maxWidth: '600px', display: 'flex', flexDirection: 'column', gap: 1.5, mx: { xs: 0, md: 4 } }}>
+          {profile.bio && (
+            <Typography variant="body2" sx={{ color: '#d1d5db', fontStyle: 'italic', lineHeight: 1.5 }}>
+              "{profile.bio}"
+            </Typography>
+          )}
+          {profile.skills && (
+            <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1 }}>
+              {profile.skills.split(',').map((s, i) => s.trim() && (
+                <Chip key={i} label={s.trim()} size="small" sx={{ borderColor: themeStyles.primary, color: themeStyles.cream }} variant="outlined" />
+              ))}
+            </Box>
+          )}
+        </Box>
+
         <Button variant="outlined" startIcon={<Edit />} onClick={() => setIsEditModalOpen(true)} sx={{ color: themeStyles.cream, borderColor: themeStyles.primary }}>Edit Profile</Button>
       </Box>
 
@@ -636,14 +671,15 @@ export default function FreelancerDashboard() {
       <Dialog open={isEditModalOpen} onClose={() => setIsEditModalOpen(false)} PaperProps={{ sx: { bgcolor: themeStyles.bg, color: themeStyles.cream, border: `1px solid ${themeStyles.primary}`, minWidth: '500px' } }}>
         <DialogTitle>Edit Profile</DialogTitle>
         <DialogContent sx={{ mt: 2, display: 'flex', flexDirection: 'column', gap: 2 }}>
+          <TextField fullWidth label="Profile Photo URL" value={profile.avatarUrl} onChange={e=>setProfile({...profile, avatarUrl: e.target.value})} InputLabelProps={{style:{color:themeStyles.primary}}} InputProps={{style:{color:themeStyles.cream}}} placeholder="https://example.com/photo.jpg" />
           <TextField fullWidth label="Headline" value={profile.profession} onChange={e=>setProfile({...profile, profession: e.target.value})} InputLabelProps={{style:{color:themeStyles.primary}}} InputProps={{style:{color:themeStyles.cream}}} />
-          <TextField fullWidth label="Hourly Rate" value={profile.hourlyRate} onChange={e=>setProfile({...profile, hourlyRate: e.target.value})} InputLabelProps={{style:{color:themeStyles.primary}}} InputProps={{style:{color:themeStyles.cream}}} />
+          <TextField fullWidth label="Hourly Rate ($)" type="number" value={profile.hourlyRate} onChange={e=>setProfile({...profile, hourlyRate: e.target.value})} InputLabelProps={{style:{color:themeStyles.primary}}} InputProps={{style:{color:themeStyles.cream}}} />
           <TextField fullWidth multiline rows={3} label="Bio" value={profile.bio} onChange={e=>setProfile({...profile, bio: e.target.value})} InputLabelProps={{style:{color:themeStyles.primary}}} InputProps={{style:{color:themeStyles.cream}}} />
           <TextField fullWidth label="Skills (comma separated)" value={profile.skills} onChange={e=>setProfile({...profile, skills: e.target.value})} InputLabelProps={{style:{color:themeStyles.primary}}} InputProps={{style:{color:themeStyles.cream}}} />
         </DialogContent>
         <DialogActions sx={{ p: 3 }}>
           <Button onClick={() => setIsEditModalOpen(false)} sx={{ color: themeStyles.primary }}>Cancel</Button>
-          <Button variant="contained" sx={{ bgcolor: themeStyles.primary }} onClick={() => { setIsEditModalOpen(false); setToast({open: true, message: 'Profile updated!', severity: 'success'}); }}>Save Changes</Button>
+          <Button variant="contained" sx={{ bgcolor: themeStyles.primary }} onClick={handleSaveProfile}>Save Changes</Button>
         </DialogActions>
       </Dialog>
 

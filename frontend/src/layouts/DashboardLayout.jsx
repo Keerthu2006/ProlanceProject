@@ -1,5 +1,9 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
+import { Client } from '@stomp/stompjs';
+import SockJS from 'sockjs-client';
+import { toast } from 'react-toastify';
+
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Box, Drawer, AppBar, Toolbar, List, ListItem, ListItemButton,
@@ -28,6 +32,62 @@ export default function DashboardLayout() {
   const location = useLocation();
 
   const theme = useMemo(() => getTheme(mode), [mode]);
+
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    
+    const updateUnreadCount = () => {
+        const storageKey = `prolance_ws_notifs_${user.email}`;
+        const wsNotifs = JSON.parse(localStorage.getItem(storageKey) || "[]");
+        const readState = JSON.parse(localStorage.getItem(`teamlance_notif_read_${user.email}`) || "{}");
+        const unreadWs = wsNotifs.filter(n => !readState[n.id]).length;
+        setUnreadCount(3 + unreadWs);
+    };
+    updateUnreadCount();
+    window.addEventListener("ws_notification", updateUnreadCount);
+
+    const client = new Client({
+      brokerURL: "ws://localhost:8080/ws",
+      reconnectDelay: 5000,
+      onConnect: () => {
+        client.subscribe(`/topic/notifications/${user.id}`, (message) => {
+          try {
+            const payload = JSON.parse(message.body);
+            const msgBody = payload.message || payload.body || "No content";
+            
+            const storageKey = `prolance_ws_notifs_${user.email}`;
+            const existing = JSON.parse(localStorage.getItem(storageKey) || "[]");
+            const newNotif = {
+              id: "ws_" + Date.now(),
+              title: payload.title,
+              message: msgBody,
+              type: payload.type || "Live",
+              date: new Date().toISOString()
+            };
+            localStorage.setItem(storageKey, JSON.stringify([newNotif, ...existing]));
+            window.dispatchEvent(new Event("ws_notification"));
+
+            toast.info(
+              <Box>
+                <Typography variant="subtitle2" sx={{ fontWeight: "bold", color: "#FFDBBB" }}>{payload.title}</Typography>
+                <Typography variant="body2" sx={{ color: "#d1d5db" }}>{msgBody}</Typography>
+              </Box>,
+              { position: "bottom-right", autoClose: false, icon: false, style: { background: "#1a1311", border: "1px solid #997E67" } }
+            );
+          } catch(e) {}
+        });
+      },
+      webSocketFactory: () => new SockJS("http://localhost:8080/ws")
+    });
+    client.activate();
+    
+    return () => {
+        client.deactivate();
+        window.removeEventListener("ws_notification", updateUnreadCount);
+    };
+  }, [user]);
 
   const toggleSidebar = () => setSidebarOpen(!sidebarOpen);
   const toggleMode = () => setMode((prev) => (prev === 'light' ? 'dark' : 'light'));
@@ -64,13 +124,13 @@ export default function DashboardLayout() {
       ];
     } else {
       return [
-        { text: 'Executive Dashboard', icon: LayoutDashboard, path: '/dashboard/admin' },
-        { text: 'AI Neglect Engine', icon: Brain,          path: '/dashboard/neglect' },
-        { text: 'AI Intelligence',  icon: Cpu,             path: '/dashboard/ai' },
-        { text: 'Market Intel',     icon: Globe,           path: '/dashboard/market-intel' },
-        { text: 'Automation',       icon: Zap,             path: '/dashboard/automation' },
+        { text: 'Overview', icon: LayoutDashboard, path: '/dashboard/admin' },
+        { text: 'Smart Monitor', icon: Brain,          path: '/dashboard/neglect' },
+          { text: 'AI Intelligence',  icon: Cpu,             path: '/dashboard/admin-ai' },
+                { text: 'Market Intel',     icon: Globe,           path: '/dashboard/market-intel' },
+        { text: 'Action Center',       icon: Zap,             path: '/dashboard/automation' },
         { text: 'Reports',          icon: BarChart2,       path: '/dashboard/reports' },
-        { text: 'System Health',    icon: Activity,        path: '/dashboard/system-health' },
+        { text: 'Platform Health',    icon: Activity,        path: '/dashboard/system-health' },
         { text: 'Notifications',    icon: Bell,            path: '/dashboard/notifications' },
         { text: 'Settings',         icon: Activity,        path: '/dashboard/settings' },
       ];
@@ -81,11 +141,12 @@ export default function DashboardLayout() {
     switch (location.pathname) {
       case '/dashboard/client': return 'Client Dashboard';
       case '/dashboard/freelancer': return 'Freelancer Hub';
-      case '/dashboard/ai': return 'AI Intelligence';
-      case '/dashboard/owner': return 'Executive Dashboard';
+      case '/dashboard/ai': return 'AI Insights';
+        case '/dashboard/admin-ai': return 'AI Intelligence';
+      case '/dashboard/owner': return 'Overview';
       case '/dashboard/market-intel': return 'Market Intelligence';
       case '/dashboard/analytics': return 'Analytics';
-      default: return 'TeamLance';
+      default: return 'ProLance';
     }
   }, [location.pathname]);
 
@@ -176,7 +237,7 @@ export default function DashboardLayout() {
             </IconButton>
 
             <IconButton sx={{ color: '#FFDBBB', mr: 1 }}>
-              <Badge badgeContent={3} color="error">
+              <Badge badgeContent={unreadCount} color="error">
                 <Bell size={20} />
               </Badge>
             </IconButton>
@@ -271,7 +332,7 @@ export default function DashboardLayout() {
                   WebkitTextFillColor: 'transparent',
                 }}
               >
-                TeamLance
+                ProLance
               </Typography>
             )}
           </Box>
@@ -383,3 +444,7 @@ export default function DashboardLayout() {
     </ThemeProvider>
   );
 }
+
+
+
+

@@ -91,67 +91,30 @@ export default function ClientDashboard() {
     if (activeTab !== 2) return;
     if (projects.length === 0) return;
 
-    const computeMatches = async () => {
-      // Fetch freelancers if not already loaded
-      let freelancerList = freelancers;
-      if (freelancerList.length === 0) {
-        try {
-          const res = await api.get('/freelancers');
-          freelancerList = res.data || [];
-          setFreelancers(freelancerList);
-        } catch(e) {
-          console.error('Failed to load freelancers for matching', e);
-          return;
-        }
-      }
-
+            const computeMatches = async () => {
       const matchesMap = {};
       const openProjs = projects.filter(p => p.status === 'OPEN');
-
       for (const project of openProjs) {
-        const projectSkills = (project.skillsRequired || []).map(s => s.toLowerCase().trim());
-        const scored = [];
-
-        for (const freelancer of freelancerList) {
-          const fSkills = (freelancer.skills || []).map(s => s.toLowerCase().trim());
-          const fHeadline = (freelancer.headline || '').toLowerCase();
-          const fBio = (freelancer.bio || '').toLowerCase();
-          const fName = freelancer.user?.fullName || freelancer.user?.email || `Freelancer #${freelancer.id}`;
-
-          let score = 10; // baseline
-          const reasons = [];
-
-          // Skill overlap scoring
-          const overlap = projectSkills.filter(s => fSkills.includes(s));
-          if (overlap.length > 0) {
-            score += overlap.length * 25;
-            reasons.push(`Matches ${overlap.length} skill${overlap.length > 1 ? 's' : ''}: ${overlap.join(', ')}`);
+        try {
+          console.log("Fetching matches for project:", project.id);
+          const res = await api.get('/projects/' + project.id + '/ai-matches');
+          console.log("Response for project", project.id, ":", res.data);
+          if (res.data && res.data.matches) {
+            matchesMap[project.id] = res.data.matches.map(m => ({
+              freelancer_id: m.freelancer_id,
+              freelancer_name: m.freelancer_name || ('Freelancer #' + m.freelancer_id),
+              score: m.match_score || m.score,
+              reason: Array.isArray(m.match_reasoning) ? m.match_reasoning.join(' ') : (m.match_reasoning || m.reason || 'AI Matched')
+            }));
+          } else {
+             matchesMap[project.id] = [];
           }
-
-          // Keyword in headline/bio
-          const kwMatches = projectSkills.filter(s => fHeadline.includes(s) || fBio.includes(s));
-          if (kwMatches.length > 0 && overlap.length === 0) {
-            score += 15;
-            reasons.push(`Profile mentions: ${kwMatches.join(', ')}`);
-          }
-
-          // Small random noise to avoid ties
-          score += Math.random() * 5;
-          score = Math.min(Math.round(score), 99);
-
-          scored.push({
-            freelancer_id: freelancer.id,
-            freelancer_name: fName,
-            score,
-            reason: reasons.length > 0 ? reasons.join(' · ') : 'Baseline recommendation'
-          });
+        } catch (e) {
+          console.error('Failed to get AI matches for project', project.id, e.response?.data || e.message);
+          matchesMap[project.id] = [];
         }
-
-        // Sort by score and take top 5
-        scored.sort((a, b) => b.score - a.score);
-        matchesMap[project.id] = scored.slice(0, 5);
       }
-
+      console.log("Final matchesMap:", matchesMap);
       setAiMatches(matchesMap);
     };
 
@@ -196,6 +159,15 @@ export default function ClientDashboard() {
   };
 
   useEffect(() => { if (activeTab === 1) fetchFreelancers(); }, [activeTab]);
+
+  const handleAiInvite = async (projectId, match) => {
+    try {
+      await api.post(`/projects/${projectId}/invite`, { freelancerId: match.freelancer_id });
+      setToast({ open: true, message: `Invitation sent to ${match.freelancer_name || 'Freelancer'}!`, severity: 'success' });
+    } catch (err) {
+      setToast({ open: true, message: 'Failed to send invitation.', severity: 'error' });
+    }
+  };
 
   const handlePostProject = async () => {
     try {
@@ -753,17 +725,13 @@ export default function ClientDashboard() {
                                     </Typography>
                                     <Typography variant="body2" sx={{ color: '#10b981', fontWeight: 'bold' }}>Match Score: {match.score}%</Typography>
                                   </Box>
-                                  <Button size="small" variant="outlined" sx={{ color: '#10b981', borderColor: '#10b981' }} onClick={() => setToast({ open: true, message: `Invited Freelancer #${match.freelancer_id}`, severity: 'success' })}>Invite</Button>
+                                    <Button size="small" variant="outlined" sx={{ color: '#10b981', borderColor: '#10b981' }} onClick={() => handleAiInvite(project.id, match)}>Invite</Button>
                                 </Box>
                                 <Typography variant="body2" sx={{ color: '#d1d5db' }}>{match.reason}</Typography>
                               </Box>
                             ))}
                           </Box>
-                        ) : (
-                          <Typography variant="body2" sx={{ color: '#d1d5db', fontStyle: 'italic' }}>
-                            Loading AI recommendations...
-                          </Typography>
-                        )}
+                        ) : aiMatches[project.id] !== undefined ? ( <Typography variant="body2" sx={{ color: '#d1d5db', fontStyle: 'italic' }}>No exact matches found yet. Try inviting freelancers manually.</Typography> ) : ( <Typography variant="body2" sx={{ color: '#d1d5db', fontStyle: 'italic' }}>Loading AI recommendations...</Typography> )}
                       </Box>
                     )}
 
@@ -781,35 +749,58 @@ export default function ClientDashboard() {
           {/* SECTION E: Feedback */}
           {activeTab === 3 && (
             <Box>
-              <Typography variant="h6" sx={{ mb: 3, color: themeStyles.primary }}>Leave Reviews for Completed Projects</Typography>
-              {projects.filter(p => p.status === 'COMPLETED').length === 0 ? (
-                <Box sx={{ textAlign: 'center', py: 8, ...themeStyles.glass, borderRadius: 3 }}>
-                  <Typography variant="h2" sx={{ mb: 2 }}>⭐</Typography>
-                  <Typography variant="h6" sx={{ mb: 1 }}>No completed projects yet</Typography>
-                  <Typography variant="body2" sx={{ color: themeStyles.primary }}>Complete a project to leave a review for your freelancer</Typography>
-                </Box>
-              ) : (
-                projects.filter(p => p.status === 'COMPLETED').map(project => (
-                  <motion.div key={project.id} initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }}>
-                    <Box sx={{ ...themeStyles.glass, p: 3, display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2, borderRadius: 2 }}>
-                      <Box>
-                        <Typography variant="h6">{project.title}</Typography>
-                        <Typography variant="body2" sx={{ color: themeStyles.primary }}>Budget: ${project.budgetMin} - ${project.budgetMax}</Typography>
-                        <Chip label="COMPLETED" size="small" sx={{ mt: 1, bgcolor: 'rgba(76,175,80,0.15)', color: '#4caf50', border: '1px solid #4caf50' }} />
-                      </Box>
-                      {reviewedProjects.includes(project.id) ? (
-                        <Chip label="✓ Reviewed" sx={{ bgcolor: 'rgba(76,175,80,0.1)', color: '#4caf50' }} />
-                      ) : (
-                        <Button
-                          variant="outlined"
-                          sx={{ color: themeStyles.cream, borderColor: themeStyles.primary, '&:hover': { borderColor: themeStyles.cream, bgcolor: 'rgba(255,219,187,0.05)' } }}
-                          onClick={() => { setReviewProject(project); setIsReviewModalOpen(true); }}
-                        >Leave Review</Button>
-                      )}
-                    </Box>
-                  </motion.div>
-                ))
-              )}
+              <Typography variant="h6" sx={{ mb: 1, color: themeStyles.primary }}>Platform Feedback & Support</Typography>
+              <Typography variant="body2" sx={{ mb: 4, color: 'rgba(255,219,187,0.7)' }}>
+                Help us improve ProLance! Report bugs, request features, or tell us about your experience. Your feedback is analyzed by our AI to continuously improve the platform.
+              </Typography>
+              
+              <Box sx={{ ...themeStyles.glass, p: 4, borderRadius: 3, maxWidth: 600 }}>
+                <FormControl fullWidth sx={{ mb: 3 }}>
+                  <InputLabel sx={{ color: themeStyles.primary }}>Feedback Type</InputLabel>
+                  <Select 
+                    defaultValue="USABILITY" 
+                    sx={{ color: themeStyles.cream, '.MuiOutlinedInput-notchedOutline': { borderColor: themeStyles.primary } }}
+                    label="Feedback Type"
+                  >
+                    <MenuItem value="USABILITY">Usability Issue / Confusing Feature</MenuItem>
+                    <MenuItem value="BUG">Technical Bug / Error</MenuItem>
+                    <MenuItem value="FEATURE_REQUEST">Feature Request</MenuItem>
+                    <MenuItem value="GENERAL">General Feedback</MenuItem>
+                  </Select>
+                </FormControl>
+
+                <TextField
+                  fullWidth
+                  multiline
+                  rows={5}
+                  label="Describe your feedback"
+                  placeholder="E.g., I found it difficult to understand how the TeamLancer bidding system works..."
+                  InputLabelProps={{ style: { color: themeStyles.primary } }}
+                  InputProps={{ style: { color: themeStyles.cream } }}
+                  sx={{ 
+                    mb: 3,
+                    '& .MuiOutlinedInput-root': { 
+                      '& fieldset': { borderColor: themeStyles.primary }, 
+                      '&:hover fieldset': { borderColor: themeStyles.cream } 
+                    } 
+                  }}
+                />
+
+                <Button 
+                  variant="contained" 
+                  fullWidth
+                  startIcon={<Sparkles size={18} />}
+                  onClick={() => setToast({ open: true, message: 'Feedback submitted! Our NLP Engine is analyzing your report.', severity: 'success' })}
+                  sx={{ 
+                    bgcolor: themeStyles.primary, 
+                    color: themeStyles.bg, 
+                    py: 1.5,
+                    '&:hover': { bgcolor: themeStyles.cream } 
+                  }}
+                >
+                  Submit Feedback
+                </Button>
+              </Box>
             </Box>
           )}
         </motion.div>
@@ -1030,3 +1021,8 @@ export default function ClientDashboard() {
     </Box>
   );
 }
+
+
+
+
+

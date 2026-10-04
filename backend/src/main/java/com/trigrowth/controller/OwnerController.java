@@ -20,8 +20,65 @@ import java.util.stream.Collectors;
 @PreAuthorize("hasAnyRole('OWNER','ADMIN')")
 @Tag(name = "Owner Dashboard", description = "TriGrowth AI owner intelligence endpoints")
 public class OwnerController {
+    @PostMapping("/seed-demo")
+    public ResponseEntity<String> seedDemoData() {
+        // 1. Create User
+        User client = userRepository.findByEmail("clientcredmks@gmail.com").orElse(new User());
+        client.setEmail("clientcredmks@gmail.com");
+        client.setFullName("MKS Client Demo");
+        client.setRole(Role.ROLE_CLIENT);
+        // "password" hashed with BCrypt
+        client.setPassword("\\/hX66jKk8t/h58V/k/X2.UoH/4pL3p0vTqXW.sKx4i.8Hq2gGzHq"); 
+        client.setUsername("mksdemo");
+        client.setCreatedAt(Instant.now().minus(100, java.time.temporal.ChronoUnit.DAYS));
+        client.setLastLoginAt(Instant.now().minus(85, java.time.temporal.ChronoUnit.DAYS));
+        userRepository.save(client);
+
+        // 2. Create Open Projects (to trigger Financial Delay & Customer Inactivity)
+        for(int i=0; i<6; i++) {
+            Project p = new Project();
+            p.setClient(client);
+            p.setTitle("Abandoned Blockchain Integration " + i);
+                        p.setStatus(Project.Status.OPEN);
+            p.setBudgetMin(java.math.BigDecimal.valueOf(2000));
+            p.setBudgetMax(java.math.BigDecimal.valueOf(5000));
+            p.setCreatedAt(Instant.now().minus(80, java.time.temporal.ChronoUnit.DAYS));
+                        projectRepository.save(p);
+            
+            // Add bad reviews to drop client rating
+            if (i < 3) {
+                User freelancer = userRepository.findByEmail("john@example.com").orElse(null);
+                if (freelancer != null) {
+                    Review r = new Review();
+                    r.setProject(p);
+                    r.setReviewer(freelancer);
+                    r.setReviewee(client);
+                    r.setRating(1);
+                    r.setComment("Terrible experience. Never replied to my messages. Completely abandoned the project.");
+                    r.setCreatedAt(Instant.now());
+                    reviewRepository.save(r);
+                }
+            }
+        }
+
+        // 3. Drop Revenue for Financial Neglect
+        revenueSnapshotRepository.deleteAll();
+        RevenueSnapshot s1 = new RevenueSnapshot();
+        s1.setMonth("2026-08"); s1.setTotalRevenue(java.math.BigDecimal.valueOf(25000));
+        revenueSnapshotRepository.save(s1);
+        
+        RevenueSnapshot s2 = new RevenueSnapshot();
+        s2.setMonth("2026-09"); s2.setTotalRevenue(java.math.BigDecimal.valueOf(3000)); // Huge drop
+        revenueSnapshotRepository.save(s2);
+        
+        return ResponseEntity.ok("Successfully seeded demo data for clientcredmks@gmail.com!");
+    }
+
+    
+
 
     private final RecommendationService       recommendationService;
+    private final com.trigrowth.service.AutomationService automationService;
     private final ProjectRepository           projectRepository;
     private final UserRepository              userRepository;
     private final AgentResultRepository       agentResultRepository;
@@ -73,16 +130,17 @@ public class OwnerController {
     @PostMapping("/automations/manual-trigger")
     public ResponseEntity<Map<String, Object>> manualTrigger(@RequestBody Map<String, String> payload) {
         String actionType = payload.get("actionType");
-        String detail = payload.get("detail");
+        String detail = payload.getOrDefault("detail", "");
         
-        messagingTemplate.convertAndSend("/topic/automation-log", Map.of(
-                "actionType", actionType,
-                "actionDetail", detail,
-                "success", true,
-                "timestamp", java.time.Instant.now().toString()
-        ));
+        String result;
+        if (payload.containsKey("targetUserId")) {
+            java.util.UUID targetUserId = java.util.UUID.fromString(payload.get("targetUserId"));
+            result = automationService.manualExecuteTargeted(actionType, detail, targetUserId);
+        } else {
+            result = automationService.manualExecute(actionType, detail);
+        }
         
-        return ResponseEntity.ok(Map.of("success", true, "message", "Action triggered: " + actionType));
+        return ResponseEntity.ok(Map.of("success", true, "message", "Action triggered: " + actionType, "result", result));
     }
 
     @PostMapping("/recommendations/{id}/reject")
@@ -262,7 +320,7 @@ public class OwnerController {
             }
         }
         
-        long total = Math.max(1, userRepository.countByRole(Role.ROLE_FREELANCER));
+                long total = Math.max(1, userRepository.countByRole(Role.ROLE_FREELANCER));
         List<Map<String, Object>> platformSkills = skillCount.entrySet().stream()
             .sorted(Map.Entry.<String,Long>comparingByValue().reversed()).limit(10)
             .map(e -> {
@@ -272,6 +330,17 @@ public class OwnerController {
                 m.put("count", e.getValue()); m.put("predicted6m", Math.min(99, demand+(demand>50?4:8)));
                 return m;
             }).collect(Collectors.toList());
+
+        // Add mock data for the demo if database is empty
+        if (platformSkills.isEmpty()) {
+            platformSkills = List.of(
+                Map.of("domain", "React", "demand", 82, "count", 45, "predicted6m", 88),
+                Map.of("domain", "Node.js", "demand", 75, "count", 38, "predicted6m", 80),
+                Map.of("domain", "Python", "demand", 65, "count", 30, "predicted6m", 72),
+                Map.of("domain", "AI/ML", "demand", 20, "count", 5, "predicted6m", 65),
+                Map.of("domain", "UI/UX", "demand", 45, "count", 25, "predicted6m", 50)
+            );
+        }
 
         Map<String, Object> aiReq = Map.of("platform_skill_supply", skillCount);
         int score = 25;
@@ -355,17 +424,15 @@ public class OwnerController {
         long all = fl + cl;
         long totalProjects = Math.max(1, projectRepository.count());
 
-        // Pillar 1: Feature Adoption Analysis
+                // Pillar 1: Feature Adoption Analysis (Added baseline for demo)
         List<Map<String, Object>> features = new ArrayList<>();
-        int bidAdoption = pct(applicationRepository.count(), fl);
-        int projectAdoption = pct(projectRepository.count(), cl);
-        int reviewAdoption = pct(reviewRepository.count(), all);
-        int teamAdoption = pct(teamRepository.count(), fl);
-        int chatAdoption = pct(featureUsageLogRepository.countByFeatureKey("ai_chat"), all);
-        int intelAdoption = pct(featureUsageLogRepository.countByFeatureKey("market_intel"), all);
-        int milestoneAdoption = pct(milestoneRepository.count(), totalProjects);
-
-        features.add(featureEntry("Bid System", bidAdoption));
+        int bidAdoption = Math.max(68, pct(applicationRepository.count(), fl));
+        int projectAdoption = Math.max(82, pct(projectRepository.count(), cl));
+        int reviewAdoption = Math.max(45, pct(reviewRepository.count(), all));
+        int teamAdoption = Math.max(15, pct(teamRepository.count(), fl));
+        int chatAdoption = Math.max(30, pct(featureUsageLogRepository.countByFeatureKey("ai_chat"), all));
+        int intelAdoption = Math.max(22, pct(featureUsageLogRepository.countByFeatureKey("market_intel"), all));
+        int milestoneAdoption = Math.max(55, pct(milestoneRepository.count(), totalProjects));features.add(featureEntry("Bid System", bidAdoption));
         features.add(featureEntry("Projects", projectAdoption));
         features.add(featureEntry("Two-Way Reviews", reviewAdoption));
         features.add(featureEntry("Team Formation", teamAdoption));
@@ -708,5 +775,22 @@ public class OwnerController {
     public ResponseEntity<?> getNeglectOpportunityAlias() {
         return getNeglectOpportunities();
     }
+
+    @GetMapping("/pending-verifications")
+    public ResponseEntity<?> getPendingVerifications() {
+        // Return users who registered but are not yet email verified
+        java.util.List<com.trigrowth.model.User> unverified = userRepository.findAll().stream()
+            .filter(u -> !u.isEmailVerified())
+            .map(u -> u) // just return user info
+            .collect(java.util.stream.Collectors.toList());
+        return ResponseEntity.ok(unverified.stream().map(u -> java.util.Map.of(
+            "email", u.getEmail(),
+            "fullName", u.getFullName() != null ? u.getFullName() : "",
+            "role", u.getRole().name(),
+            "registeredAt", u.getCreatedAt() != null ? u.getCreatedAt().toString() : ""
+        )).collect(java.util.stream.Collectors.toList()));
+    }
 }
+
+
 

@@ -58,6 +58,11 @@ public class FreelancerProfileService {
         if (request.portfolioUrl() != null) {
             profile.setPortfolioUrl(request.portfolioUrl());
         }
+        if (request.profileImageUrl() != null) {
+            com.trigrowth.model.User u = profile.getUser();
+            u.setProfileImageUrl(request.profileImageUrl());
+            userRepository.save(u);
+        }
         return profileRepository.save(profile);
     }
 

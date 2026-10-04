@@ -43,10 +43,12 @@ public class EventCollectorService {
     private final FreelancerProfileRepository profileRepository;
     private final ProjectRepository projectRepository;
     private final ApplicationRepository applicationRepository;
+    private final MessageRepository messageRepository;
 
     @Value("${app.ai-service.base-url:http://127.0.0.1:8001}")
     private String aiServiceUrl;
 
+    @org.springframework.scheduling.annotation.Async
     public void emit(String eventType, String entityType, Long entityId, Map<String, Object> payload) {
         try {
             String payloadJson = new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(payload);
@@ -222,6 +224,11 @@ public class EventCollectorService {
             customerPayload.put("worst_client_days",     top.get("days_inactive"));
             customerPayload.put("worst_client_risk",     top.get("risk"));
         }
+        
+        customerPayload.put("recent_chats", messageRepository.findTop20ByOrderBySentAtDesc().stream()
+                .map(m -> m.getSender().getFullName() + ": " + m.getContent())
+                .collect(Collectors.toList()));
+
         emit("CLIENT_INACTIVITY_REPORT", "SYSTEM", 0L, customerPayload);
         log.info("Customer Neglect scan: {} at-risk clients ({} CRITICAL, {} HIGH)",
                 atRiskClients.size(), criticalCount, highCount);

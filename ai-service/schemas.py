@@ -59,7 +59,9 @@ class AnalyzeEventResponse(BaseModel):
     recommendation: Optional[RecommendationResponse] = None
 
 class FreelancerProfile(BaseModel):
-    id: int
+    id: str
+    name: Optional[str] = None
+    hourly_rate: Optional[float] = 0.0
     headline: str
     bio: str
     skills: list[str]
@@ -68,10 +70,14 @@ class MatchmakingRequest(BaseModel):
     project_title: str
     project_description: str
     project_skills: list[str]
+    project_type: str = "INDIVIDUAL"
+    team_size: int = 1
     freelancers: list[FreelancerProfile]
 
+from typing import Optional
 class MatchScore(BaseModel):
-    freelancer_id: int
+    freelancer_id: str
+    freelancer_name: Optional[str] = None
     score: float
     reason: str
 

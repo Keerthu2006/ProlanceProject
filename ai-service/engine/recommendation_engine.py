@@ -106,32 +106,44 @@ def _fallback(top_agent: AgentResult, ctx: EventContext) -> RecommendationRespon
     return RecommendationResponse(**tpl)
 
 
-def generate(top_agent: AgentResult, ctx: EventContext) -> RecommendationResponse:
-    if not _GROQ_AVAILABLE or _groq_client is None:
+def generate(top_agent: AgentResult, ctx: EventContext, pipe=None) -> RecommendationResponse:
+    if pipe is None:
         return _fallback(top_agent, ctx)
 
-    user_prompt = (
-        f"Agent: {top_agent.agent_name}\n"
-        f"Severity: {top_agent.severity}\n"
-        f"Score: {top_agent.score}\n"
-        f"Summary: {top_agent.summary}\n"
-        f"Event type: {ctx.event_type}\n"
-        f"Context payload: {json.dumps(ctx.payload, default=str)[:800]}"
+    prompt = (
+        f"Event Type: {ctx.event_type}\n"
+        f"Top Agent: {top_agent.agent_name} (Severity: {top_agent.severity})\n"
+        f"Agent Summary: {top_agent.summary}\n"
+        f"Raw Data Context: {json.dumps(top_agent.raw_data)[:200]}\n\n"
+        f"Analyze this data and return exactly the required JSON format. DO NOT INCLUDE MARKDOWN TICK MARKS. ONLY JSON."
     )
 
     try:
-        chat = _groq_client.chat.completions.create(
-            model="groq/compound-mini",
-            messages=[
-                {"role": "system", "content": _SYSTEM_PROMPT},
-                {"role": "user",   "content": user_prompt},
-            ],
-            temperature=0.4,
-            max_tokens=800,
+        messages = [
+            {"role": "system", "content": _SYSTEM_PROMPT},
+            {"role": "user", "content": prompt}
+        ]
+        formatted_prompt = pipe.tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+        outputs = pipe(formatted_prompt, max_new_tokens=250, do_sample=False)
+        content = outputs[0]["generated_text"].split("<|im_start|>assistant\n")[-1].strip()
+
+        if content.startswith("```json"):
+            content = content[7:]
+        if content.startswith("```"):
+            content = content[3:]
+        if content.endswith("```"):
+            content = content[:-3]
+
+        data = json.loads(content.strip())
+        return RecommendationResponse(
+            problem=data.get("problem", "Unknown problem"),
+            reason=data.get("reason", "Unknown reason"),
+            prediction=data.get("prediction", "Unknown prediction"),
+            recommended_action=data.get("recommended_action", "No action suggested"),
+            expected_improvement=data.get("expected_improvement", "N/A"),
+            confidence=float(data.get("confidence", 70.0)),
+            automation_plan=data.get("automation_plan", [])
         )
-        raw = chat.choices[0].message.content.strip()
-        data = json.loads(raw)
-        return RecommendationResponse(**data)
     except Exception as e:
-        print(f"[RecommendationEngine] Groq error ({e}), using fallback.")
+        print(f"[RecommendationEngine] Qwen error: {e}, using fallback.")
         return _fallback(top_agent, ctx)

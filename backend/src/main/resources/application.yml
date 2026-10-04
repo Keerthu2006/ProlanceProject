@@ -68,12 +68,17 @@ spring:
 
   # ── Mail (mock – won't fail if not connected) ─────────────────
   mail:
-    host: smtp.mock.example.com
+    host: smtp.gmail.com
     port: 587
-    username: mock-user
-    password: mock-password
+    username: adminprolance@gmail.com
+    password: meoenzbetaqtkdxt
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
 
-  # ── Jackson ───────────────────────────────────────────────────
   jackson:
     serialization:
       write-dates-as-timestamps: false

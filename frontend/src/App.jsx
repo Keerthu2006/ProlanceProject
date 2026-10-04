@@ -4,6 +4,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
+import axios from 'axios';
 
 /* ── Pages ── */
 import HomePage from './pages/HomePage';
@@ -19,6 +20,7 @@ import ClientDashboard from './pages/dashboard/ClientDashboard';
 import FreelancerDashboard from './pages/dashboard/FreelancerDashboard';
 import OwnerDashboard from './pages/dashboard/OwnerDashboard';
 import AIDashboard from './pages/dashboard/AIDashboard';
+import AISuggestionsPage from './pages/dashboard/AISuggestionsPage';
 import MarketIntelligencePage from './pages/dashboard/MarketIntelligencePage';
 import CreateProject from './pages/dashboard/CreateProject';
 import ProjectDetail from './pages/dashboard/ProjectDetail';
@@ -76,8 +78,9 @@ function AnimatedRoutes() {
             <Route path="freelancer" element={<FreelancerDashboard />} />
             <Route path="admin" element={<ProtectedRoute allowedRoles={['ROLE_OWNER', 'ROLE_ADMIN']}><OwnerDashboard /></ProtectedRoute>} />
             <Route path="owner" element={<ProtectedRoute allowedRoles={['ROLE_OWNER', 'ROLE_ADMIN']}><OwnerDashboard /></ProtectedRoute>} />
-            <Route path="ai" element={<ProtectedRoute allowedRoles={['ROLE_OWNER', 'ROLE_ADMIN']}><AIDashboard /></ProtectedRoute>} />
-            <Route path="market-intel" element={<ProtectedRoute allowedRoles={['ROLE_OWNER', 'ROLE_ADMIN']}><MarketIntelligencePage /></ProtectedRoute>} />
+            <Route path="admin-ai" element={<ProtectedRoute allowedRoles={['ROLE_OWNER', 'ROLE_ADMIN']}><AIDashboard /></ProtectedRoute>} />
+            <Route path="ai" element={<AISuggestionsPage />} />
+            <Route path="market-intel" element={<MarketIntelligencePage />} />
             <Route path="neglect" element={<ProtectedRoute allowedRoles={['ROLE_OWNER', 'ROLE_ADMIN']}><NeglectDashboard /></ProtectedRoute>} />
             <Route path="create-project" element={<CreateProject />} />
             <Route path="project/:id" element={<ProjectDetail />} />
@@ -116,34 +119,51 @@ function OAuthCallback() {
   const { login } = useAuth();
 
   useEffect(() => {
-    if (token) {
-      try {
-        const payload = JSON.parse(atob(token.split('.')[1]));
-        const role = payload.role || roleFromUrl || 'ROLE_FREELANCER';
-        const userData = {
-          email: payload.sub,
-          role,
-          fullName: payload.name || payload.sub?.split('@')[0] || 'User',
-        };
-        login(token, userData);
-        if (role === 'ROLE_CLIENT') { window.location.href = '/dashboard/client'; return; }
-        if (role === 'ROLE_OWNER' || role === 'ROLE_ADMIN') { window.location.href = '/dashboard/admin'; return; }
-        window.location.href = '/dashboard/freelancer';
-      } catch { window.location.href = '/login'; }
-    } else {
+    if (!token) {
       window.location.href = '/login';
+      return;
     }
-  }, [token, roleFromUrl, login]);
+    try {
+      // Decode JWT payload (Base64URL safe)
+      const base64Url = token.split('.')[1];
+      let base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+      while (base64.length % 4) base64 += '=';
+      let jsonPayload;
+      try {
+        jsonPayload = decodeURIComponent(atob(base64).split('').map(c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)).join(''));
+      } catch {
+        jsonPayload = atob(base64);
+      }
+      const payload = JSON.parse(jsonPayload);
+      const role = payload.role || roleFromUrl || 'ROLE_FREELANCER';
+      const userData = {
+        email: payload.sub,
+        role,
+        fullName: payload.name || payload.sub?.split('@')[0] || 'User',
+      };
+      // Log in directly — NO OTP for Google Sign-In
+      login(token, userData);
+      if (role === 'ROLE_CLIENT') { window.location.href = '/dashboard/client'; return; }
+      if (role === 'ROLE_OWNER' || role === 'ROLE_ADMIN') { window.location.href = '/dashboard/admin'; return; }
+      window.location.href = '/dashboard/freelancer';
+    } catch (err) {
+      console.error('Google auth error:', err);
+      window.location.href = '/login?error=auth_failed';
+    }
+  }, [token, roleFromUrl]);
 
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#0D0A07' }}>
       <div style={{ textAlign: 'center' }}>
-        <div className="live-dot" style={{ width: 40, height: 40, margin: '0 auto 1rem' }} />
-        <p className="text-muted">Signing you in to TeamLance…</p>
+        <div style={{ width: 48, height: 48, borderRadius: '50%', background: '#997E67', margin: '0 auto 1rem', animation: 'pulse 1.5s infinite' }} />
+        <p style={{ color: '#FFDBBB', fontSize: 16 }}>Signing you in with Google...</p>
       </div>
     </div>
   );
 }
+
+
+
 
 function ProtectedRoute({ children, allowedRoles }) {
   const { user } = useAuth();
@@ -178,3 +198,4 @@ export default function App() {
     </AuthProvider>
   );
 }
+

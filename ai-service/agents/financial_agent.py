@@ -27,29 +27,30 @@ if rf_model is None:
     print("[FinancialAgent] WARNING: RF model not found, using rule-based fallback")
 
 
-def _groq_summary(severity: str, features: dict) -> str:
-    """Try Groq then return a deterministic fallback."""
-    try:
-        import groq as groq_lib
-        client = groq_lib.Groq(api_key=os.getenv("GROQ_API_KEY", ""))
-        prompt = (
-            f"You are a financial analyst for a freelance platform.\n"
-            f"A Random Forest ML model classified Financial Neglect Risk as: {severity}\n"
-            f"Key metrics: budget=${features.get('budget',0):.0f}, "
-            f"agreed=${features.get('agreed_amount',0):.0f}, "
-            f"payment delay={features.get('payment_delay',0):.1f} days, "
-            f"overdue milestones={features.get('overdue_milestones',0)}, "
-            f"client rating={features.get('client_rating',5):.1f}/5.\n"
-            f"Write 2 concise sentences: explain the risk, then suggest one automated action."
-        )
-        chat = client.chat.completions.create(
-            model="groq/compound-mini",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.4, max_tokens=120,
-        )
-        return chat.choices[0].message.content.strip()
-    except Exception:
-        pass
+def _generate_summary(severity: str, features: dict, pipe=None) -> str:
+    summary = ""
+    if pipe is not None:
+        try:
+            prompt = (
+                f"You are a financial analyst for a freelance platform.\n"
+                f"A Random Forest ML model classified Financial Neglect Risk as: {severity}\n"
+                f"Key metrics: budget=${features.get('budget',0):.0f}, "
+                f"agreed=${features.get('agreed_amount',0):.0f}, "
+                f"payment delay={features.get('payment_delay',0):.1f} days, "
+                f"milestone overdue by={features.get('milestone_delay',0):.1f} days.\n"
+                f"Write 2 sentences: explain the revenue churn risk and suggest ONE automated action to recover the revenue."
+            )
+            messages = [
+                {"role": "system", "content": "You are a professional financial intelligence analyst. Be concise."},
+                {"role": "user", "content": prompt}
+            ]
+            formatted_prompt = pipe.tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+            outputs = pipe(formatted_prompt, max_new_tokens=150, do_sample=False)
+            summary = outputs[0]["generated_text"].split("<|im_start|>assistant\n")[-1].strip()
+            if summary:
+                return summary
+        except Exception as e:
+            print(f"Local LLM error in FinancialNeglectAgent: {e}")
 
     delay = features.get('payment_delay', 0)
     overdue = features.get('overdue_milestones', 0)
@@ -74,7 +75,7 @@ def _groq_summary(severity: str, features: dict) -> str:
         )
 
 
-def analyze(ctx: EventContext) -> AgentResult:
+def analyze(ctx: EventContext, pipe=None) -> AgentResult:
     payload = ctx.payload
 
     # Support both old REVENUE_REPORT payload shape and new REVENUE_NEGLECT_REPORT shape
@@ -118,7 +119,7 @@ def analyze(ctx: EventContext) -> AgentResult:
         "payment_delay": payment_delay, "overdue_milestones": overdue_milestones,
         "client_rating": client_rating, "drop_percentage": revenue_drop,
     }
-    summary = _groq_summary(severity, feature_dict)
+    summary = _generate_summary(severity, feature_dict, pipe=pipe)
 
     return AgentResult(
         agent_name="FinancialNeglectAgent",

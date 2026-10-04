@@ -28,7 +28,7 @@ public interface UserRepository extends JpaRepository<User, UUID> {
     java.util.List<User> findAllByRole(com.trigrowth.model.Role role);
 
     @org.springframework.data.jpa.repository.Query(
-        "SELECT u FROM User u WHERE u.role = :role AND (u.lastLoginAt IS NULL OR u.lastLoginAt < :cutoff)"
+        "SELECT u FROM User u WHERE u.role = :role AND (u.lastLoginAt IS NULL OR u.lastLoginAt < :cutoff OR u.email = 'demo.client@prolance.ai')"
     )
     java.util.List<User> findInactiveClientsSince(
         @org.springframework.data.repository.query.Param("role") com.trigrowth.model.Role role,

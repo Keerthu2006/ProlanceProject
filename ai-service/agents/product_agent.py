@@ -12,28 +12,31 @@ from schemas import AgentResult, EventContext
 
 def _generate_summary(severity: str, feature_key: str, feature_adoption_pct: float,
                       incomplete_profile_pct: float, transparency_deficit_pct: float,
-                      complaints: int, reviews: list) -> str:
-    try:
-        import groq as groq_lib
-        client = groq_lib.Groq(api_key=os.getenv("GROQ_API_KEY", ""))
-        reviews_text = "; ".join(reviews[:3]) if reviews else "No recent reviews"
-        prompt = (
-            f"You are a Product Operations & UX Intelligence specialist for ProLance, a freelance platform.\n"
-            f"Product Neglect Status: {severity}\n"
-            f"- Website Feature Adoption: {feature_adoption_pct:.1f}% (Key focus: {feature_key})\n"
-            f"- Incomplete Freelancer Profiles: {incomplete_profile_pct:.1f}%\n"
-            f"- Lack of Transparency Index: {transparency_deficit_pct:.1f}%\n"
-            f"- Recent user complaints: {complaints} ({reviews_text})\n"
-            f"Write 2 concise, executive sentences: identify the top product neglect bottleneck, then provide one high-impact automated fix."
-        )
-        chat = client.chat.completions.create(
-            model="groq/compound-mini",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.4, max_tokens=140,
-        )
-        return chat.choices[0].message.content.strip()
-    except Exception:
-        pass
+                      complaints: int, reviews: list, pipe=None) -> str:
+    summary = ""
+    if pipe is not None:
+        try:
+            reviews_text = "; ".join(reviews[:3]) if reviews else "No recent reviews"
+            prompt = (
+                f"You are a Product Operations & UX Intelligence specialist for ProLance, a freelance platform.\n"
+                f"Product Neglect Status: {severity}\n"
+                f"- Website Feature Adoption: {feature_adoption_pct:.1f}% (Key focus: {feature_key})\n"
+                f"- Incomplete Freelancer Profiles: {incomplete_profile_pct:.1f}%\n"
+                f"- Lack of Transparency Index: {transparency_deficit_pct:.1f}%\n"
+                f"- Recent user complaints: {complaints} ({reviews_text})\n"
+                f"Write 2 concise, executive sentences: identify the top product neglect bottleneck, then provide one high-impact automated fix."
+            )
+            messages = [
+                {"role": "system", "content": "You are a professional UX and product intelligence analyst. Be concise."},
+                {"role": "user", "content": prompt}
+            ]
+            formatted_prompt = pipe.tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+            outputs = pipe(formatted_prompt, max_new_tokens=150, do_sample=False)
+            summary = outputs[0]["generated_text"].split("<|im_start|>assistant\n")[-1].strip()
+            if summary:
+                return summary
+        except Exception as e:
+            print(f"Local LLM error in ProductNeglectAgent: {e}")
 
     if severity in ("CRITICAL", "HIGH"):
         return (
@@ -54,7 +57,7 @@ def _generate_summary(severity: str, feature_key: str, feature_adoption_pct: flo
         )
 
 
-def analyze(ctx: EventContext) -> AgentResult:
+def analyze(ctx: EventContext, pipe=None) -> AgentResult:
     payload = ctx.payload
 
     feature_key          = payload.get("feature_key", "team_formation")
@@ -111,7 +114,7 @@ def analyze(ctx: EventContext) -> AgentResult:
     summary = _generate_summary(
         severity, feature_key, feature_adoption_pct,
         incomplete_profile_pct, transparency_deficit_pct,
-        complaint_count, recent_reviews
+        complaint_count, recent_reviews, pipe=pipe
     )
 
     return AgentResult(

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
+import { toast } from 'react-toastify';
 import api from "../../api/api";
 import {
   Box, Typography, Tabs, Tab, Card, CardContent, Button, Chip,
@@ -17,6 +18,51 @@ const C = { bg:"#0D0A07", primary:"#997E67", cream:"#FFDBBB", brown:"#664930" };
 
 const RISK_COLOR = { CRITICAL:"#f87171", HIGH:"#fbbf24", MEDIUM:"#fcd34d", LOW:"#86efac", HEALTHY:"#34d399" };
 const RISK_SCORE = { CRITICAL:85, HIGH:65, MEDIUM:45, LOW:25, HEALTHY:5 };
+const RISK_LABEL = { CRITICAL:"Needs Attention Now", HIGH:"Watch Closely", MEDIUM:"Keep an Eye On", LOW:"All Good", HEALTHY:"All Good" };
+
+
+const COURSE_LINKS = {
+  'React': [
+    { title: 'React Complete Guide 2024', url: 'https://www.udemy.com/course/react-the-complete-guide-incl-redux/', platform: 'Udemy' },
+    { title: 'React JS Crash Course', url: 'https://www.youtube.com/watch?v=w7ejDZ8SWv8', platform: 'YouTube' },
+  ],
+  'Python': [
+    { title: 'Python for Everybody', url: 'https://www.coursera.org/specializations/python', platform: 'Coursera' },
+    { title: '100 Days of Python', url: 'https://www.udemy.com/course/100-days-of-code/', platform: 'Udemy' },
+  ],
+  'AI/ML': [
+    { title: 'Machine Learning Specialization', url: 'https://www.coursera.org/specializations/machine-learning-introduction', platform: 'Coursera' },
+    { title: 'Fast.ai Practical Deep Learning', url: 'https://course.fast.ai/', platform: 'fast.ai' },
+    { title: 'AI for Everyone', url: 'https://www.coursera.org/learn/ai-for-everyone', platform: 'Coursera' },
+  ],
+  'Node.js': [
+    { title: 'Node.js - The Complete Guide', url: 'https://www.udemy.com/course/nodejs-the-complete-guide/', platform: 'Udemy' },
+    { title: 'Node.js Crash Course', url: 'https://www.youtube.com/watch?v=fBNz5xF-Kx4', platform: 'YouTube' },
+  ],
+  'Flutter': [
+    { title: 'Flutter & Dart - Complete Guide', url: 'https://www.udemy.com/course/learn-flutter-dart-to-build-ios-android-apps/', platform: 'Udemy' },
+    { title: 'Flutter Crash Course', url: 'https://www.youtube.com/watch?v=1gDhl4leEzA', platform: 'YouTube' },
+  ],
+  'Blockchain': [
+    { title: 'Blockchain Specialization', url: 'https://www.coursera.org/specializations/blockchain', platform: 'Coursera' },
+    { title: 'Ethereum and Solidity', url: 'https://www.udemy.com/course/ethereum-and-solidity-the-complete-developers-guide/', platform: 'Udemy' },
+  ],
+  'DevOps': [
+    { title: 'DevOps Bootcamp', url: 'https://www.udemy.com/course/decodingdevops/', platform: 'Udemy' },
+    { title: 'Docker & Kubernetes', url: 'https://www.udemy.com/course/docker-and-kubernetes-the-complete-guide/', platform: 'Udemy' },
+  ],
+  'default': [
+    { title: 'The Complete Web Developer Bootcamp', url: 'https://www.udemy.com/course/the-web-developer-bootcamp/', platform: 'Udemy' },
+    { title: 'CS50 - Introduction to Computer Science', url: 'https://www.edx.org/course/introduction-computer-science-harvardx-cs50x', platform: 'edX (Free)' },
+  ]
+};
+
+const PROJECT_IDEAS = {
+  'AI/ML': ['Build an AI chatbot for customer support', 'Create a resume screening tool', 'Develop a price prediction model for e-commerce'],
+  'React': ['SaaS dashboard for small businesses', 'Real-time job board application', 'E-commerce storefront with cart and checkout'],
+  'Python': ['Automated data reporting tool', 'Web scraping service for market research', 'API integration platform'],
+  'default': ['Build a project management tool', 'Create a freelancer portfolio platform', 'Develop an automated invoice system']
+};
 
 export default function NeglectDashboard() {
   const [tab, setTab] = useState(0);
@@ -79,7 +125,7 @@ export default function NeglectDashboard() {
       onConnect: () => {
         client.subscribe("/topic/recommendations", () => {
           fetchAll();
-          setToast({ open:true, msg:"?? AI generated a new recommendation!", sev:"info" });
+          toast.success("?? AI generated a new recommendation!");
         });
 
         // Listen for live automation executions!
@@ -101,17 +147,17 @@ export default function NeglectDashboard() {
   const approveRec = async (id) => {
     try {
       await api.post(`/owner/recommendations/${id}/approve`);
-      setToast({ open:true, msg:"? Recommendation approved! Automation triggered.", sev:"success" });
+      toast.success("? AI Suggestion approved! Automation triggered.");
       fetchAll();
     } catch {
-      setToast({ open:true, msg:"Failed to approve", sev:"error" });
+      toast.success("Failed to approve");
     }
   };
 
   const rejectRec = async (id) => {
     try {
       await api.post(`/owner/recommendations/${id}/reject`);
-      setToast({ open:true, msg:"Recommendation dismissed.", sev:"info" });
+      toast.success("AI Suggestion dismissed.");
       fetchAll();
     } catch {}
   };
@@ -132,7 +178,7 @@ export default function NeglectDashboard() {
     const a = document.createElement("a");
     a.href = URL.createObjectURL(new Blob([header + rows], { type:"text/csv" }));
     a.download = "financial-risk-audit.csv"; a.click();
-    setToast({ open:true, msg:"Financial Risk Audit CSV exported!", sev:"success" });
+    toast.success("Financial Risk Audit CSV exported!");
   };
 
   // -- Summary stats -----------------------------------------------
@@ -143,14 +189,28 @@ export default function NeglectDashboard() {
     ? Math.round(customers.reduce((acc, c) => acc + (RISK_SCORE[c.risk] || 0), 0) / customers.length)
     : 0;
 
-  const activeAgent = tab === 0 ? "CustomerNeglectAgent" : 
-                      tab === 1 ? "ProductNeglectAgent" : 
-                      tab === 2 ? "FinancialNeglectAgent" : 
-                      tab === 3 ? "OpportunityNeglectAgent" : "FreelancerNeglectAgent";
+  const activeAgent = tab === 0 ? "Client Activity Monitor" : 
+                      tab === 1 ? "Feature Usage Monitor" : 
+                      tab === 2 ? "Revenue Health Monitor" : 
+                      tab === 3 ? "Market Opportunity Monitor" : "Freelancer Engagement Monitor";
                       
   const activeRec = pendingRecs.find(r =>
     r.agentResult?.agentName === activeAgent
   );
+
+
+  const handleTargetedEmail = (targetUserId, actionType, detail, successMsg) => {
+    api.post('/owner/automations/manual-trigger', {
+      actionType,
+      detail,
+      targetUserId: targetUserId.toString()
+    }).then(() => {
+      toast.success(successMsg);
+    }).catch(err => {
+      toast.error("Failed to send email");
+      console.error(err);
+    });
+  };
 
   if (loading) return (
     <Box sx={{ display:"flex", justifyContent:"center", alignItems:"center", height:400 }}>
@@ -182,14 +242,14 @@ export default function NeglectDashboard() {
         </Box>
       </Box>
 
-      {/* Pending AI Recommendation Banner */}
+      {/* Pending AI AI Suggestion Banner */}
       {activeRec && (
         <Box sx={{ mb:3, p:2.5, bgcolor:"rgba(167,139,250,0.08)", border:"1px solid rgba(167,139,250,0.4)", borderRadius:2 }}>
           <Box sx={{ display:"flex", alignItems:"flex-start", gap:2 }}>
             <AlertTriangle size={20} color="#a78bfa" style={{ marginTop:2, flexShrink:0 }}/>
             <Box sx={{ flex:1 }}>
               <Typography variant="subtitle2" sx={{ color:"#a78bfa", fontWeight:"bold", mb:0.5 }}>
-                ?? AI Recommendation  {activeRec.agentResult?.agentName}  {activeRec.agentResult?.severity}
+                ?? AI AI Suggestion  {activeRec.agentResult?.agentName}  {activeRec.agentResult?.severity}
               </Typography>
               <Typography variant="body2" sx={{ color:C.cream, mb:0.5 }}>
                 <strong>Problem:</strong> {activeRec.problem}
@@ -228,7 +288,11 @@ export default function NeglectDashboard() {
 
       {/* -- Tab 0: Customer Neglect ------------------------------ */}
       {tab === 0 && (
-        <Grid container spacing={4}>
+        <Box>
+          <Alert severity="info" sx={{ mb: 4, bgcolor: 'rgba(255, 219, 187, 0.1)', color: '#FFDBBB', border: '1px solid rgba(255, 219, 187, 0.3)' }}>
+            <strong>Demo Credentials for Testing:</strong> Simply use the "Continue with Google" button on the Login page to instantly access the Client or Freelancer dashboard without needing OTP verification.
+          </Alert>
+          <Grid container spacing={4}>
           {/* Score Card */}
           <Grid item xs={12} md={4}>
             <Card sx={{ bgcolor:"rgba(13,10,7,0.7)", border:`1px solid ${C.brown}`, borderRadius:2, textAlign:"center", p:3 }}>
@@ -237,7 +301,7 @@ export default function NeglectDashboard() {
                 {overallScore} <span style={{ fontSize:"1.5rem", color:C.primary }}>/ 100</span>
               </Typography>
               <Chip
-                label={overallScore > 60 ? "CRITICAL RISK" : overallScore > 30 ? "HIGH RISK" : overallScore > 15 ? "MEDIUM RISK" : "LOW RISK"}
+                label={overallScore > 60 ? "Needs Attention Now" : overallScore > 30 ? "Watch Closely" : overallScore > 15 ? "Keep an Eye On" : "All Good"}
                 sx={{ bgcolor: overallScore > 60 ? "rgba(248,113,113,0.2)" : overallScore > 30 ? "rgba(251,191,36,0.2)" : "rgba(52,211,153,0.2)",
                       color:   overallScore > 60 ? "#f87171" : overallScore > 30 ? "#fbbf24" : "#34d399", fontWeight:"bold" }}
               />
@@ -263,7 +327,7 @@ export default function NeglectDashboard() {
             <Card sx={{ bgcolor:"rgba(13,10,7,0.7)", border:`1px solid ${C.brown}`, borderRadius:2, height:"100%" }}>
               <CardContent>
                 <Typography sx={{ color:C.cream, display:"flex", alignItems:"center", gap:1, mb:2 }}>
-                  <AlertTriangle size={18} color="#a78bfa"/> AI Analysis (CustomerNeglectAgent)
+                  <AlertTriangle size={18} color="#a78bfa"/> AI Analysis (Client Activity Monitor)
                 </Typography>
                 {agentSummary?.customer_summary ? (
                   <>
@@ -317,7 +381,7 @@ export default function NeglectDashboard() {
                       <TableCell sx={{ color:C.primary }}>{c.projects30d}</TableCell>
                       <TableCell>
                         <Chip
-                          label={c.risk}
+                          label={RISK_LABEL[c.risk] || c.risk}
                           size="small"
                           sx={{ bgcolor:`${RISK_COLOR[c.risk] || "#997E67"}25`, color: RISK_COLOR[c.risk] || C.primary, fontWeight:"bold" }}
                         />
@@ -328,13 +392,13 @@ export default function NeglectDashboard() {
                             <Tooltip title={`Send re-engagement email to ${c.email}`}>
                               <Button size="small" startIcon={<Mail size={14}/>}
                                 sx={{ color:C.primary, fontSize:"0.75rem" }}
-                                onClick={() => setToast({ open:true, msg:`Re-engagement email queued for ${c.name}`, sev:"success" })}
+                                onClick={() => handleTargetedEmail(c.id, "EMAIL_CLIENT", "We noticed you haven't posted a project recently. Is there anything we can help you with?", `Re-engagement email queued for ${c.name}`)}
                               >Email</Button>
                             </Tooltip>
                             <Tooltip title="Offer a discount on next project posting">
                               <Button size="small"
                                 sx={{ color:C.primary, fontSize:"0.75rem" }}
-                                onClick={() => setToast({ open:true, msg:`Discount offer sent to ${c.name}`, sev:"success" })}
+                                onClick={() => handleTargetedEmail(c.id, "OFFER_DISCOUNT", "Here is a 20% discount on your next project.", `Discount offer sent to ${c.name}`)}
                               >Offer</Button>
                             </Tooltip>
                           </>
@@ -350,6 +414,7 @@ export default function NeglectDashboard() {
             </TableContainer>
           </Grid>
         </Grid>
+        </Box>
       )}
 
       {/* -- Tab 1: Product Neglect ------------------------------- */}
@@ -366,7 +431,7 @@ export default function NeglectDashboard() {
                 {productData?.productNeglectScore ?? 35} <span style={{ fontSize:"1.5rem", color:C.primary }}>/ 100</span>
               </Typography>
               <Chip
-                label={`${productData?.riskLevel || "MODERATE"} RISK`}
+                label={productData?.riskLevel || "MODERATE"}
                 sx={{
                   bgcolor: (productData?.productNeglectScore ?? 35) > 60 ? "rgba(248,113,113,0.2)" : (productData?.productNeglectScore ?? 35) > 30 ? "rgba(251,191,36,0.2)" : "rgba(52,211,153,0.2)",
                   color: (productData?.productNeglectScore ?? 35) > 60 ? "#f87171" : (productData?.productNeglectScore ?? 35) > 30 ? "#fbbf24" : "#34d399",
@@ -459,7 +524,7 @@ export default function NeglectDashboard() {
                     <LinearProgress variant="determinate" value={f.adoption}
                       sx={{ bgcolor:"rgba(153,126,103,0.2)", "& .MuiLinearProgress-bar":{ bgcolor:"#60a5fa" }, mb:1 }}/>
                     <Button fullWidth variant="outlined" size="small"
-                      onClick={() => setToast({ open:true, msg:`Interactive feature guide queued for ${f.feature}`, sev:"success" })}
+                      onClick={() => handleTargetedEmail(f.userId, "EMAIL_PRODUCT_NEGLECT", `We noticed you haven't used the ${f.feature} feature. Here is a quick guide.`, `Interactive feature guide queued for ${f.feature}`)}
                       sx={{ color:C.primary, borderColor:C.brown, fontSize:"0.75rem" }}>
                       Send Feature Guide Email
                     </Button>
@@ -555,7 +620,7 @@ export default function NeglectDashboard() {
                               <Button
                                 size="small"
                                 startIcon={<Send size={12}/>}
-                                onClick={() => setToast({ open:true, msg:`Profile completion nudge sent to ${p.name}!`, sev:"success" })}
+                                onClick={() => handleTargetedEmail(p.userId || p.id, "EMAIL_CLIENT", "Your profile is incomplete. Completing it increases your chances of getting hired!", `Profile completion nudge sent to ${p.email || p.name}`)}
                                 sx={{ color:C.cream, bgcolor:"rgba(153,126,103,0.2)", "&:hover":{ bgcolor:"rgba(153,126,103,0.4)" }, fontSize:"0.72rem" }}
                               >
                                 Prompt Completion
@@ -639,7 +704,7 @@ export default function NeglectDashboard() {
                 {financialData?.financialNeglectScore ?? 25} <span style={{ fontSize:"1.5rem", color:C.primary }}>/ 100</span>
               </Typography>
               <Chip
-                label={`${financialData?.riskLevel || "LOW"} RISK`}
+                label={financialData?.riskLevel || "LOW"}
                 sx={{
                   bgcolor: (financialData?.financialNeglectScore ?? 25) > 60 ? "rgba(248,113,113,0.2)" : (financialData?.financialNeglectScore ?? 25) > 30 ? "rgba(251,191,36,0.2)" : "rgba(52,211,153,0.2)",
                   color: (financialData?.financialNeglectScore ?? 25) > 60 ? "#f87171" : (financialData?.financialNeglectScore ?? 25) > 30 ? "#fbbf24" : "#34d399",
@@ -812,14 +877,14 @@ export default function NeglectDashboard() {
                                 <Button
                                   size="small"
                                   startIcon={<Mail size={12}/>}
-                                  onClick={() => setToast({ open:true, msg:`Automated payment reminder queued for milestone #${m.id}`, sev:"success" })}
+                                  onClick={() => toast.success(`Automated payment reminder queued for milestone #${m.id}`)}
                                   sx={{ color:C.cream, bgcolor:"rgba(153,126,103,0.2)", "&:hover":{ bgcolor:"rgba(153,126,103,0.4)" }, fontSize:"0.72rem" }}
                                 >
                                   Payment Reminder
                                 </Button>
                                 <Button
                                   size="small"
-                                  onClick={() => setToast({ open:true, msg:`Project audit scheduled with client & freelancer`, sev:"info" })}
+                                  onClick={() => toast.success(`Project audit scheduled with client & freelancer`)}
                                   sx={{ color:C.primary, border:`1px solid ${C.brown}`, fontSize:"0.72rem" }}
                                 >
                                   Audit
@@ -949,9 +1014,9 @@ export default function NeglectDashboard() {
                                 actionType: 'NOTIFY_FREELANCERS',
                                 detail: `Notified top freelancers to upgrade for ${d.domain}`
                               }).then(() => {
-                                setToast({ open:true, msg:`Notified top freelancers to upgrade for ${d.domain}`, sev:"success" });
+                                toast.success(`Notified top freelancers to upgrade for ${d.domain}`);
                               }).catch(err => {
-                                setToast({ open:true, msg:"Failed to notify.", sev:"error" });
+                                toast.success("Failed to notify.");
                               });
                             }}
                             sx={{ color:C.primary, fontSize:"0.75rem" }}>
@@ -970,13 +1035,10 @@ export default function NeglectDashboard() {
         </Grid>
       )}
 
-      {/* Toast */}
-      <Snackbar open={toast.open} autoHideDuration={4000} onClose={() => setToast(p => ({ ...p, open:false }))}
-        anchorOrigin={{ vertical:"bottom", horizontal:"right" }}>
-        <Alert severity={toast.sev} onClose={() => setToast(p => ({ ...p, open:false }))} sx={{ width:"100%" }}>
-          {toast.msg}
-        </Alert>
-      </Snackbar>
+      
     </Box>
   );
 }
+
+
+

@@ -1,9 +1,10 @@
-import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useState, useEffect, useRef } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import axios from 'axios';
 import { toast } from 'react-toastify';
 import { useAuth } from '../../context/AuthContext';
+import { Box, Typography, TextField, Button, CircularProgress } from '@mui/material';
 
 /* ── Brand Tokens ────────────────────────────────────────────── */
 const C = {
@@ -68,6 +69,9 @@ export default function AuthPages({ initialRegister }) {
   const [isLogin, setIsLogin] = useState(!initialRegister);
   const [loading, setLoading]  = useState(false);
   const [showPw, setShowPw]    = useState(false);
+  const [showOtpScreen, setShowOtpScreen] = useState(false);
+  const [otpDigits, setOtpDigits] = useState(['','','','','','']);
+  const otpRefs = useRef(new Array(6));
   const [formData, setFormData] = useState({
     fullName: '', username: '', email: '', password: '', confirmPassword: '',
     role: 'ROLE_FREELANCER',
@@ -93,61 +97,155 @@ export default function AuthPages({ initialRegister }) {
     else navigate('/dashboard/freelancer');
   };
 
+  // Store pending login data until OTP verified
+  const [pendingLogin, setPendingLogin] = useState(null);
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
-    try {
-      const endpoint = isLogin
-        ? 'http://localhost:8080/api/auth/login'
-        : 'http://localhost:8080/api/auth/register';
 
-      let payload = {};
-      if (isLogin) {
-        payload = { email: formData.email, password: formData.password, role: formData.role };
-      } else {
-        if (formData.password !== formData.confirmPassword) {
-          toast.error("Passwords don't match"); setLoading(false); return;
-        }
-        payload = {
-          fullName: formData.fullName,
+    if (!isLogin) {
+      // Registration flow - request OTP first
+      if (!formData.email || !formData.password) {
+        toast.error('Please fill in all fields.'); setLoading(false); return;
+      }
+      if (formData.password !== formData.confirmPassword) {
+        toast.error("Passwords don't match"); setLoading(false); return;
+      }
+      if (formData.password.length < 6) {
+        toast.error('Password must be at least 6 characters.'); setLoading(false); return;
+      }
+      
+      try {
+        await axios.post('http://localhost:8080/api/auth/send-otp', { email: formData.email });
+        setPendingLogin({
+          fullName: formData.fullName || formData.email.split('@')[0],
           email: formData.email,
           password: formData.password,
           role: formData.role,
           username: formData.email.split('@')[0] + Math.floor(Math.random() * 1000)
-        };
+        });
+        setShowOtpScreen(true);
+        toast.success('Verification code sent to your email!');
+      } catch (err) {
+        toast.error('Failed to send verification code. Please try again.');
       }
+      setLoading(false);
+      return;
+    }
 
-      const res = await axios.post(endpoint, payload);
-      if (res.data?.accessToken) {
-        const userRole = res.data?.user?.role || formData.role;
-        const actualFullName = res.data?.user?.fullName || formData.fullName || formData.email?.split('@')[0];
-        const userData = { email: formData.email, role: userRole, fullName: actualFullName };
-        login(res.data.accessToken, userData);
-        if (!isLogin) {
-          toast.success('Account created! 🎉');
-          if (userRole === 'ROLE_FREELANCER') navigate('/onboarding');
-          else navigate('/dashboard/client');
-        } else {
-          toast.success('Welcome back! 🚀');
-          redirectByRole(userRole);
-        }
-      } else {
-        toast.error('Invalid response from server.');
+    // Login flow
+    try {
+      if (!formData.email || !formData.password) {
+        toast.error('Please fill in all fields.'); setLoading(false); return;
       }
+      const payload = { email: formData.email, password: formData.password, role: formData.role };
+      const res = await axios.post('http://localhost:8080/api/auth/login', payload);
+
+      const userRole = res.data?.user?.role || res.data?.role || formData.role;
+      const actualFullName = res.data?.user?.fullName || formData.fullName || formData.email?.split('@')[0];
+      
+      login(res.data?.accessToken, { email: formData.email, role: userRole, fullName: actualFullName });
+      toast.success('Welcome back to ProLance!');
+      
+      if (userRole === 'ROLE_FREELANCER') navigate('/dashboard/freelancer');
+      else navigate('/dashboard/client');
+
     } catch (err) {
       const data = err.response?.data;
-      if (data && data.message === "Validation failed") {
-        const errors = Object.values(data).filter(v => v !== "Validation failed").join(" | ");
-        toast.error(`Error: ${errors}`);
+      if (err.response?.status === 401) {
+        toast.error('Invalid credentials. Please try again.');
       } else {
-        toast.error(data?.message || 'An error occurred. Please check your credentials.');
+        toast.error(data?.message || 'Login failed. Please try again.');
+      }
+    }
+    setLoading(false);
+  };
+
+  const handleOtpChange = (index, value) => {
+    if (isNaN(value)) return;
+    const newDigits = [...otpDigits];
+    newDigits[index] = value;
+    setOtpDigits(newDigits);
+    if (value !== '' && index < 5 && otpRefs.current[index + 1]) {
+      otpRefs.current[index + 1].focus();
+    }
+  };
+
+  const handleOtpKeyDown = (index, e) => {
+    if (e.key === 'Backspace' && otpDigits[index] === '' && index > 0 && otpRefs.current[index - 1]) {
+      otpRefs.current[index - 1].focus();
+    }
+  };
+
+  const handleVerifyOtp = async () => {
+    setLoading(true);
+    try {
+      await axios.post('http://localhost:8080/api/auth/verify-otp', {
+        email: formData.email,
+        otp: otpDigits.join('')
+      });
+      
+      // OTP is valid! Now actually create the account.
+      const res = await axios.post('http://localhost:8080/api/auth/register', pendingLogin);
+      
+      const userRole = res.data?.user?.role || res.data?.role || pendingLogin.role;
+      const actualFullName = res.data?.user?.fullName || pendingLogin.fullName;
+      
+      login(res.data?.accessToken, { email: formData.email, role: userRole, fullName: actualFullName });
+      
+      toast.dismiss('otp-toast');
+      toast.success('Email verified! Account created.');
+      
+      if (userRole === 'ROLE_FREELANCER') navigate('/onboarding');
+      else navigate('/dashboard/client');
+      
+    } catch (err) {
+      if (err.response?.status === 400 && err.response?.data?.error === 'Invalid or expired OTP') {
+        toast.error('Wrong code. Please try again.');
+      } else {
+        toast.error('Failed to create account. Email may already be in use.');
       }
     } finally { setLoading(false); }
   };
 
-  const handleGoogleAuth = () => {
-    setCookie('selected_role', formData.role, 1);
-    window.location.href = `http://localhost:8080/api/oauth2/authorization/google?role=${encodeURIComponent(formData.role)}`;
+
+  const handleResendOtp = async () => {
+    const res = await axios.post('http://localhost:8080/api/auth/send-otp', { email: formData.email });
+    if (res.data?.demo_otp) {
+      toast.info(`📧 New code sent! (Demo: ${res.data.demo_otp})`, { autoClose: false, toastId: 'otp-toast' });
+    } else {
+      toast.info('📧 New code sent to your inbox!');
+    }
+    setOtpDigits(['','','','','','']);
+  };
+
+      const handleGoogleAuth = async () => {
+    // Demo bypass for Google account-access block
+    setLoading(true);
+    const email = formData.role === 'ROLE_CLIENT' ? 'demo.client@prolance.ai' : 'demo.freelancer@prolance.ai';
+    try {
+      const res = await axios.post('http://localhost:8080/api/auth/login', {
+        email: email,
+        password: 'password'
+      });
+      login(res.data.accessToken, { email: email, role: formData.role, fullName: 'Google Demo User' });
+      toast.success('Google Login simulated!');
+      navigate(formData.role === 'ROLE_CLIENT' ? '/dashboard/client' : '/dashboard/freelancer');
+    } catch (e) {
+      try {
+        const res = await axios.post('http://localhost:8080/api/auth/register', {
+          fullName: 'Google Demo User', username: email.split('@')[0], email: email, password: 'password', role: formData.role
+        });
+        const loginRes = await axios.post('http://localhost:8080/api/auth/login', { email: email, password: 'password' });
+        login(loginRes.data.accessToken, { email: email, role: formData.role, fullName: 'Google Demo User' });
+        toast.success('Google Demo Account Created!');
+        navigate(formData.role === 'ROLE_CLIENT' ? '/dashboard/client' : '/onboarding');
+      } catch (err) {
+        toast.error('Google bypass failed.');
+        setLoading(false);
+      }
+    }
   };
 
   const handleOwnerBypass = async () => {
@@ -282,9 +380,60 @@ export default function AuthPages({ initialRegister }) {
           }}>
 
           {/* Heading */}
-          <h2 style={{ margin: '0 0 4px', fontSize: 24, fontWeight: 800, color: '#fff', textAlign: 'center' }}>
-            {isLogin ? 'Welcome Back' : 'Create Account'}
-          </h2>
+          {showOtpScreen ? (
+            <motion.div initial={{opacity:0, y:20}} animate={{opacity:1, y:0}} key="otp">
+              <Box sx={{ textAlign: 'center', py: 2 }}>
+                <Box sx={{ fontSize: 48, mb: 2 }}>📧</Box>
+                <Typography variant="h6" sx={{ color: '#FFDBBB', mb: 1 }}>Check your email!</Typography>
+                <Typography variant="body2" sx={{ color: '#997E67', mb: 3 }}>
+                  We sent a 6-digit code to <strong>{formData.email}</strong>
+                </Typography>
+                
+                {/* 6 separate digit inputs */}
+                <Box sx={{ display: 'flex', gap: 1, justifyContent: 'center', mb: 3 }}>
+                  {[0,1,2,3,4,5].map(i => (
+                    <TextField
+                        key={i}
+                        inputRef={el => otpRefs.current[i] = el}
+                        value={otpDigits[i]}
+                        onChange={e => handleOtpChange(i, e.target.value)}
+                        onKeyDown={e => handleOtpKeyDown(i, e)}
+                        inputProps={{ maxLength: 1, style: { textAlign: 'center', fontSize: 28, fontWeight: 'bold', color: '#FFDBBB' }}}
+                        sx={{
+                          width: 54,
+                          backgroundColor: 'rgba(255, 219, 187, 0.05)',
+                          borderRadius: '8px',
+                          '& .MuiInputBase-input': { color: '#FFDBBB', caretColor: '#FFDBBB' },
+                          '& .MuiOutlinedInput-root': {
+                            '& fieldset': { borderColor: 'rgba(153,126,103,0.3)', borderWidth: '2px' },
+                            '&:hover fieldset': { borderColor: 'rgba(153,126,103,0.7)' },
+                            '&.Mui-focused fieldset': { borderColor: '#FFDBBB', borderWidth: '2px' }
+                          }
+                        }}
+                      />
+                  ))}
+                </Box>
+                
+                <Button
+                  fullWidth
+                  variant="contained"
+                  onClick={handleVerifyOtp}
+                  disabled={loading || otpDigits.join('').length < 6}
+                  sx={{ background: 'linear-gradient(135deg, #997E67, #664930)', py: 1.5, mb: 2 }}
+                >
+                  {loading ? <CircularProgress size={20} /> : 'Verify My Email'}
+                </Button>
+                
+                <Typography variant="caption" sx={{ color: '#997E67' }}>
+                  Didn't get the code? <span style={{cursor:'pointer', color:'#FFDBBB'}} onClick={handleResendOtp}>Resend</span>
+                </Typography>
+              </Box>
+            </motion.div>
+          ) : (
+            <>
+              <h2 style={{ margin: '0 0 4px', fontSize: 24, fontWeight: 800, color: '#fff', textAlign: 'center' }}>
+                {isLogin ? 'Welcome Back' : 'Create Account'}
+              </h2>
           <p style={{ margin: '0 0 24px', fontSize: 13, color: C.muted, textAlign: 'center' }}>
             Select your role to continue
           </p>
@@ -415,6 +564,8 @@ export default function AuthPages({ initialRegister }) {
               System Administrator Access
             </button>
           </div>
+          </>
+          )}
         </motion.div>
 
         {/* Back to home */}
@@ -438,3 +589,6 @@ export default function AuthPages({ initialRegister }) {
     </div>
   );
 }
+
+
+

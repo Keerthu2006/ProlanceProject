@@ -11,5 +11,6 @@ public record ProfileUpdateRequest(
         String availability,
         String githubUrl,
         String linkedinUrl,
-        String portfolioUrl
+        String portfolioUrl,
+        String profileImageUrl
 ) {}

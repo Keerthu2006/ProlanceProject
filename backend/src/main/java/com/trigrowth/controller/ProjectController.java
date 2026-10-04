@@ -33,6 +33,10 @@ public class ProjectController {
     private final ReviewService      reviewService;
     private final UserRepository     userRepository;
     private final com.trigrowth.repository.FreelancerProfileRepository profileRepository;
+    private final com.trigrowth.repository.TeamRepository teamRepository;
+    private final org.springframework.messaging.simp.SimpMessagingTemplate messagingTemplate;
+    private final com.trigrowth.service.NotificationService notificationService;
+
 
     // ── Project CRUD ──────────────────────────────────────────────
 
@@ -272,20 +276,66 @@ public class ProjectController {
     @Operation(summary = "Get AI semantic matches for a project")
     public ResponseEntity<?> getAiMatches(@PathVariable Long id) {
         Project p = projectService.getProject(id);
-        List<Map<String,Object>> freelancers = new java.util.ArrayList<>();
-        for(com.trigrowth.model.FreelancerProfile prof : profileRepository.findAll()) {
-            freelancers.add(Map.of(
-                "id", prof.getUser().getId(),
-                "headline", prof.getHeadline() != null ? prof.getHeadline() : "",
-                "bio", prof.getBio() != null ? prof.getBio() : "",
-                "skills", prof.getSkills() != null ? prof.getSkills() : List.of()
-            ));
+        List<Map<String,Object>> entities = new java.util.ArrayList<>();
+        
+        if (p.getProjectType() != null && p.getProjectType().name().equals("TEAM")) {
+            // For TEAM projects, fetch fixed Teams instead of random individuals
+            for(com.trigrowth.model.Team team : teamRepository.findAll()) {
+                java.util.Set<String> compositeSkills = new java.util.HashSet<>();
+                StringBuilder bioBuilder = new StringBuilder();
+                double avgRate = 0.0;
+                int memberCount = 0;
+                
+                for (com.trigrowth.model.User member : team.getMembers()) {
+                    profileRepository.findByUserId(member.getId()).ifPresent(prof -> {
+                        if (prof.getSkills() != null) compositeSkills.addAll(prof.getSkills());
+                        if (prof.getBio() != null) bioBuilder.append(prof.getBio()).append(" ");
+                    });
+                    memberCount++;
+                }
+                
+                entities.add(Map.of(
+                    "id", team.getId().toString(), // Using team ID as freelancer_id
+                    "name", team.getName() + " (Fixed Team)",
+                    "hourly_rate", memberCount > 0 ? (avgRate / memberCount) : 0.0,
+                    "headline", "Agency / Pre-formed Team",
+                    "bio", bioBuilder.toString(),
+                    "skills", new java.util.ArrayList<>(compositeSkills)
+                ));
+            }
+        } else {
+            // For INDIVIDUAL projects, fetch freelancers
+            for(com.trigrowth.model.FreelancerProfile prof : profileRepository.findAll()) {
+                entities.add(Map.of(
+                    "id", prof.getUser().getId().toString(),
+                    "name", prof.getUser().getFullName(),
+                    "hourly_rate", prof.getHourlyRate() != null ? prof.getHourlyRate().doubleValue() : 0.0,
+                    "headline", prof.getHeadline() != null ? prof.getHeadline() : "",
+                    "bio", prof.getBio() != null ? prof.getBio() : "",
+                    "skills", prof.getSkills() != null ? prof.getSkills() : List.of()
+                ));
+            }
         }
+
+        // --- ADDED MOCK DATA FOR DEMO IF EMPTY ---
+        if (entities.isEmpty()) {
+            if (p.getProjectType() != null && p.getProjectType().name().equals("TEAM")) {
+                entities.add(Map.of("id", "901", "name", "WebWizards Agency", "hourly_rate", 120.0, "headline", "Full-Stack Agency", "bio", "We build scalable enterprise apps.", "skills", List.of("React", "Node.js", "AWS", "Python")));
+            } else {
+                entities.add(Map.of("id", "101", "name", "Alice Dev", "hourly_rate", 55.0, "headline", "Senior React Developer", "bio", "I build fast and scalable web apps using React and Node.", "skills", List.of("React", "Node.js", "TypeScript")));
+                entities.add(Map.of("id", "102", "name", "Bob AI", "hourly_rate", 70.0, "headline", "AI/ML Engineer", "bio", "Expert in Python, PyTorch, and deploying LLMs.", "skills", List.of("Python", "AI/ML", "PyTorch", "NLP")));
+                entities.add(Map.of("id", "103", "name", "Charlie Fullstack", "hourly_rate", 45.0, "headline", "Full Stack Developer", "bio", "Experienced in Java Spring Boot and React.", "skills", List.of("Java", "Spring Boot", "React", "PostgreSQL")));
+            }
+        }
+        // -----------------------------------------
+
         Map<String,Object> req = Map.of(
             "project_title", p.getTitle(),
             "project_description", p.getDescription(),
             "project_skills", p.getSkillsRequired(),
-            "freelancers", freelancers
+            "project_type", "INDIVIDUAL", // Force INDIVIDUAL so Python AI doesn't run combinations on our fixed teams!
+            "team_size", p.getTeamSize() != null ? p.getTeamSize() : 1,
+            "freelancers", entities
         );
         try {
             org.springframework.web.client.RestTemplate restTemplate = new org.springframework.web.client.RestTemplate();
@@ -295,4 +345,42 @@ public class ProjectController {
             return ResponseEntity.status(500).body(Map.of("error", e.getMessage()));
         }
     }
+
+    public record InviteRequest(String freelancerId) {}
+
+    @PostMapping("/{id}/invite")
+    @Operation(summary = "Invite a freelancer or team to a project")
+    public ResponseEntity<?> inviteFreelancer(@PathVariable Long id, @RequestBody InviteRequest req, @AuthenticationPrincipal UserDetails ud) {
+        Project p = projectService.getProject(id);
+        User client = userRepository.findByEmail(ud.getUsername()).orElse(null);
+        String clientName = client != null ? client.getFullName() : "A Client";
+
+        if (p.getProjectType() != null && p.getProjectType().name().equals("TEAM")) {
+            try {
+                Long teamId = Long.parseLong(req.freelancerId());
+                teamRepository.findById(teamId).ifPresent(team ->
+                    notificationService.send(
+                        team.getLeader(),
+                        "Team Project Invitation",
+                        clientName + " invited your team '" + team.getName() + "' to work on: " + p.getTitle() + ". Go to Teams tab to respond!",
+                        "INFO"
+                    )
+                );
+            } catch (Exception e) {}
+        } else {
+            try {
+                UUID uId = UUID.fromString(req.freelancerId());
+                userRepository.findById(uId).ifPresent(freelancer ->
+                    notificationService.send(
+                        freelancer,
+                        "Project Invitation",
+                        clientName + " invited you to bid on: " + p.getTitle(),
+                        "INFO"
+                    )
+                );
+            } catch (Exception e) {}
+        }
+        return ResponseEntity.ok(Map.of("message", "Invitation sent successfully"));
+    }
 }
+

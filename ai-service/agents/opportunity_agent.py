@@ -50,25 +50,28 @@ def fetch_github_trending_skill() -> str:
     return "Python"
 
 
-def _groq_summary(severity: str, top_skills: list, skill_gaps: list) -> str:
-    try:
-        import groq as groq_lib
-        client = groq_lib.Groq(api_key=os.getenv("GROQ_API_KEY", ""))
-        prompt = (
-            f"You are a Market Intelligence Analyst for a freelance platform.\n"
-            f"The Opportunity Neglect Risk level is: {severity}\n"
-            f"Top globally trending skills (by SEO search volume): {', '.join(top_skills[:3])}\n"
-            f"Skills missing from the platform (skill gaps): {', '.join(skill_gaps[:3]) if skill_gaps else 'None detected'}\n"
-            f"Write 2 concise sentences: describe the market opportunity gap, then suggest one automated recruitment action."
-        )
-        chat = client.chat.completions.create(
-            model="groq/compound-mini",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.4, max_tokens=120,
-        )
-        return chat.choices[0].message.content.strip()
-    except Exception:
-        pass
+def _generate_summary(severity: str, top_skills: list, skill_gaps: list, pipe=None) -> str:
+    summary = ""
+    if pipe is not None:
+        try:
+            prompt = (
+                f"You are a Market Intelligence Analyst for a freelance platform.\n"
+                f"The Opportunity Neglect Risk level is: {severity}\n"
+                f"Top globally trending skills (by SEO search volume): {', '.join(top_skills[:3])}\n"
+                f"Skills missing from the platform (skill gaps): {', '.join(skill_gaps[:3]) if skill_gaps else 'None detected'}\n"
+                f"Write 2 concise sentences: describe the market opportunity gap, then suggest one automated recruitment action."
+            )
+            messages = [
+                {"role": "system", "content": "You are a professional Market Intelligence analyst. Be concise."},
+                {"role": "user", "content": prompt}
+            ]
+            formatted_prompt = pipe.tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+            outputs = pipe(formatted_prompt, max_new_tokens=150, do_sample=False)
+            summary = outputs[0]["generated_text"].split("<|im_start|>assistant\n")[-1].strip()
+            if summary:
+                return summary
+        except Exception as e:
+            print(f"Local LLM error in OpportunityNeglectAgent: {e}")
 
     if severity == "HIGH":
         return (
@@ -89,7 +92,7 @@ def _groq_summary(severity: str, top_skills: list, skill_gaps: list) -> str:
         )
 
 
-def analyze(ctx: EventContext) -> AgentResult:
+def analyze(ctx: EventContext, pipe=None) -> AgentResult:
     payload = ctx.payload
 
     # Get platform skill supply from backend payload (real data!)
@@ -140,7 +143,7 @@ def analyze(ctx: EventContext) -> AgentResult:
         severity = "LOW"
         score = normalized_score
 
-    summary = _groq_summary(severity, top_seo_skills, skill_gaps)
+    summary = _generate_summary(severity, top_seo_skills, skill_gaps, pipe=pipe)
 
     return AgentResult(
         agent_name="OpportunityNeglectAgent",

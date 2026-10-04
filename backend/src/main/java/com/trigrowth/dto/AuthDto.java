@@ -22,7 +22,7 @@ public final class AuthDto {
         @NotBlank @Size(min = 3, max = 50)
         String username,
 
-        @NotBlank @Size(min = 8, message = "Password must be at least 8 characters")
+        @NotBlank @Size(min = 6, message = "Password must be at least 6 characters")
         String password,
 
         @NotBlank @Size(max = 150)

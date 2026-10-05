@@ -35,6 +35,7 @@ public class AutomationService {
     private final RestTemplate               restTemplate;
     private final ObjectMapper               objectMapper;
     private final JavaMailSender             mailSender;
+    private final UiPathService              uiPathService;
     private final UserRepository             userRepository;
 
     @Value("${app.ai-service.base-url}")
@@ -144,10 +145,17 @@ public class AutomationService {
     // ── Action handlers ───────────────────────────────────────────
 
     private String executeAction(String actionType, String detail, Recommendation rec) {
-                                String finalDetail = switch (actionType) {
+        String finalDetail = switch (actionType) {
             case "NOTIFY_FREELANCERS"     -> "Notified freelancers matching required skills. Detail: " + detail;
             case "FEATURE_PROJECT"        -> "Project featured on homepage for 48h. Detail: " + detail;
             case "EMAIL_CLIENT", "EMAIL_INACTIVE_USER", "EMAIL_PRODUCT_NEGLECT", "EMAIL_FINANCIAL_REPORT", "EMAIL_OWNER_REPORT", "EMAIL_CUSTOMER_NEGLECT" -> {
+                // Trigger UiPath Robot for Email Automation!
+                java.util.Map<String, Object> uiPathArgs = new java.util.HashMap<>();
+                uiPathArgs.put("in_ActionType", actionType);
+                uiPathArgs.put("in_EmailBody", detail);
+                
+                boolean triggered = uiPathService.triggerJob("ProLance-Reengagement-Email", uiPathArgs);
+                
                 try {
                     List<User> clients = userRepository.findAllByRole(Role.ROLE_CLIENT);
                     for (User target : clients) {
@@ -156,10 +164,20 @@ public class AutomationService {
                         sendEmailOrNotify(target, subject, text);
                     }
                 } catch(Exception e) {}
-                yield "Automated email executed. Detail: " + detail;
+                
+                if (triggered) {
+                    yield "UiPath Robot Triggered! Automated email executed. Detail: " + detail;
+                } else {
+                    yield "Automated email executed (UiPath disabled/failed fallback). Detail: " + detail;
+                }
             }
             case "SCHEDULE_FOLLOWUP"      -> "Follow-up scheduled in 3 days. Detail: " + detail;
             case "OFFER_DISCOUNT"         -> {
+                // Trigger UiPath Robot for CRM & Promo Code generation
+                java.util.Map<String, Object> uiPathArgs = new java.util.HashMap<>();
+                uiPathArgs.put("in_DiscountAmount", "20%");
+                uiPathService.triggerJob("ProLance-Discount-Generator", uiPathArgs);
+                
                 try {
                     List<User> clients = userRepository.findAllByRole(Role.ROLE_CLIENT);
                     for (User target : clients) {
@@ -168,7 +186,7 @@ public class AutomationService {
                         sendEmailOrNotify(target, subject, text);
                     }
                 } catch(Exception e) {}
-                yield "Discount codes automatically generated and sent to high-risk users. Detail: " + detail;
+                yield "UiPath Robot Triggered! Discount codes automatically generated and sent. Detail: " + detail;
             }
             case "DRAFT_EMAIL_CAMPAIGN",
                  "DRAFT_SOCIAL_POST",

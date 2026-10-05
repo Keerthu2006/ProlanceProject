@@ -630,6 +630,7 @@ public class OwnerController {
 
     // ── Comprehensive Financial Neglect Analysis Endpoint ──
     @GetMapping("/neglect/financial")
+    @org.springframework.transaction.annotation.Transactional(readOnly = true)
     public ResponseEntity<Map<String, Object>> getNeglectFinancial() {
         // 1. Revenue trend analysis
         List<RevenueSnapshot> snaps = revenueSnapshotRepository.findAllByOrderByMonthDesc();

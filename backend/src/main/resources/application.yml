@@ -151,3 +151,10 @@ stripe:
   secret-key: ${STRIPE_SECRET_KEY:sk_test_placeholder}
   success-url: http://localhost:5173/dashboard/client
   cancel-url: http://localhost:5173/dashboard/client
+
+uipath:
+  client-id: 4ad469b4-fc05-4902-9c01-9d62efc15616
+  client-secret: "9#%di80F(vrY$FPWB7XjgL#yZQ6Dpel#LVHd(P4GIcwNzQZKpcpyIBQRPkxTmoiG"
+  tenant-name: "DefaultTenant" 
+  account-logical-name: "prolanceai" 
+  orchestrator-url: "https://cloud.uipath.com"
